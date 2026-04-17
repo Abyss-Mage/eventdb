@@ -1,36 +1,102 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Pub of Homies - Web App
 
-## Getting Started
+Phase 1 foundation for the esports management platform:
 
-First, run the development server:
+- Team registration API and UI
+- Solo (free-agent) registration API and UI
+- Admin approval/rejection API and dashboard UI
+- Appwrite server-side write boundary
+
+## Prerequisites
+
+1. Node.js 20+
+2. Appwrite Cloud project
+3. Appwrite API key with database read/write scopes
+
+## Environment Setup
+
+Copy `.env.example` to `.env.local` and provide real Appwrite values.
+
+Required server configuration:
+
+- `APPWRITE_ENDPOINT`
+- `APPWRITE_PROJECT_ID`
+- `APPWRITE_API_KEY`
+- `APPWRITE_DATABASE_ID`
+- `APPWRITE_REGISTRATIONS_COLLECTION_ID`
+- `APPWRITE_TEAMS_COLLECTION_ID`
+- `APPWRITE_PLAYERS_COLLECTION_ID`
+- `APPWRITE_FREE_AGENTS_COLLECTION_ID`
+
+## Appwrite Data Model (Phase 1)
+
+Create tables in the configured database:
+
+1. `registrations`
+2. `teams`
+3. `players`
+4. `free_agents`
+
+### `registrations` (team submissions, pending approval)
+
+- `type` (`team`)
+- `status` (`pending`, `approved`, `rejected`)
+- `teamName` (string)
+- `captainDiscordId` (string)
+- `playersJson` (longtext JSON string array of `{ name, riotId, discordId, role }`)
+- `eventId` (string)
+- `email` (string, optional)
+- `teamLogoUrl` (string, optional)
+- `teamTag` (string, optional, max 5)
+- `rejectionReason` (string, optional)
+
+### `teams` (created when team registration is approved)
+
+- `teamName`, `captainDiscordId`, `eventId`, `playerCount`, `status`, `registrationId`
+- `email`, `teamLogoUrl`, `teamTag` (optional)
+
+### `players` (created when team registration is approved)
+
+- `name`, `riotId`, `discordId`, `role`, `eventId`, `teamId`, `registrationId`
+
+### `free_agents` (created directly from solo registration)
+
+- `name`, `riotId`, `discordId`, `preferredRole`, `eventId`, `status`
+- `email`, `currentRank`, `peakRank` (optional)
+- `registrationId` (optional, used by admin legacy path)
+
+### Query/index recommendation
+
+- Index `registrations.status` for admin dashboard queries.
+
+## Run
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Push Appwrite Schema
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+npm run schema:deploy
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Open `http://localhost:3000`.
 
-## Learn More
+Use `eventId` in the register URL:
 
-To learn more about Next.js, take a look at the following resources:
+- `http://localhost:3000/register?eventId=<your-event-id>`
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Implemented API Endpoints
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+- `POST /api/register/team`
+- `POST /api/register/solo`
+- `GET /api/admin/registrations?status=pending|approved|rejected`
+- `POST /api/admin/approve`
+- `POST /api/admin/reject`
 
-## Deploy on Vercel
+All API responses follow:
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- Success: `{ "success": true, "data": ... }`
+- Error: `{ "success": false, "error": "message" }`
