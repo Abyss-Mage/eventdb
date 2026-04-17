@@ -668,6 +668,33 @@ async function main() {
         required: false,
       }),
   );
+  await ensureAttribute(
+    databases,
+    databaseId,
+    freeAgentsCollectionId,
+    "assignedTeamId",
+    () =>
+      databases.createStringAttribute({
+        databaseId,
+        collectionId: freeAgentsCollectionId,
+        key: "assignedTeamId",
+        size: 64,
+        required: false,
+      }),
+  );
+  await ensureAttribute(
+    databases,
+    databaseId,
+    freeAgentsCollectionId,
+    "assignedAt",
+    () =>
+      databases.createDatetimeAttribute({
+        databaseId,
+        collectionId: freeAgentsCollectionId,
+        key: "assignedAt",
+        required: false,
+      }),
+  );
 
   await ensureAttribute(databases, databaseId, eventsCollectionId, "name", () =>
     databases.createStringAttribute({
@@ -1302,6 +1329,14 @@ async function main() {
     "status_idx",
     ["status"],
     [OrderBy.Asc],
+  );
+  await ensureIndex(
+    databases,
+    databaseId,
+    freeAgentsCollectionId,
+    "event_status_idx",
+    ["eventId", "status"],
+    [OrderBy.Asc, OrderBy.Asc],
   );
   await ensureIndex(
     databases,

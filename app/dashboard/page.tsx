@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 
 import { DASHBOARD_NAV_ITEMS, DASHBOARD_ROUTES } from "@/app/admin/admin-routes";
 import { DashboardPageHeader } from "@/app/dashboard/dashboard-page-header";
+import { ActionLinkCard } from "@/app/ui/action-link-card";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = {
@@ -22,14 +22,13 @@ export default function DashboardPage() {
       />
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
         {quickLinks.map((item) => (
-          <Link
+          <ActionLinkCard
             key={item.href}
             href={item.href}
-            className="rounded-xl border border-zinc-200 bg-white p-4 text-sm shadow-sm transition hover:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-600"
-          >
-            <p className="font-semibold text-zinc-900 dark:text-zinc-100">{item.label}</p>
-            <p className="mt-1 text-zinc-600 dark:text-zinc-300">{item.href}</p>
-          </Link>
+            title={item.label}
+            description={item.href}
+            className="p-4"
+          />
         ))}
       </section>
     </div>

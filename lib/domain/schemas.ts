@@ -156,6 +156,76 @@ export const rejectRegistrationSchema = approveRegistrationSchema.extend({
     .optional(),
 });
 
+const soloPlayerIdsSchema = z
+  .array(textSchema.min(1, "Solo player ID cannot be empty."))
+  .min(1, "At least one solo player must be selected.")
+  .max(200, "You can select at most 200 solo players per request.")
+  .superRefine((ids, ctx) => {
+    const seen = new Set<string>();
+    ids.forEach((id, index) => {
+      const normalized = id.toLowerCase();
+      if (seen.has(normalized)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Duplicate solo player IDs are not allowed.",
+          path: [index],
+        });
+      } else {
+        seen.add(normalized);
+      }
+    });
+  });
+
+export const adminEventScopedQuerySchema = z.object({
+  eventId: textSchema.min(1, "eventId query parameter is required."),
+  limit: z
+    .preprocess(
+      (value) => {
+        if (value === undefined || value === null || value === "") {
+          return undefined;
+        }
+
+        if (typeof value === "string") {
+          return Number(value);
+        }
+
+        return value;
+      },
+      z
+        .number()
+        .int("limit must be an integer.")
+        .min(1, "limit must be at least 1.")
+        .max(200, "limit must be at most 200.")
+        .optional(),
+    )
+    .optional(),
+});
+
+export const adminRandomTeamCreationSchema = z
+  .object({
+    eventId: textSchema.min(1, "Event ID is required."),
+    soloPlayerIds: soloPlayerIdsSchema.min(
+      5,
+      "At least 5 solo players are required to create teams.",
+    ),
+    teamSize: z.literal(5).optional(),
+  })
+  .superRefine((payload, ctx) => {
+    if (payload.soloPlayerIds.length % 5 !== 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Selected solo player count must be divisible by 5.",
+        path: ["soloPlayerIds"],
+      });
+    }
+  });
+
+export const adminAssignSoloPlayersSchema = z.object({
+  eventId: textSchema.min(1, "Event ID is required."),
+  teamId: textSchema.min(1, "Team ID is required."),
+  soloPlayerIds: soloPlayerIdsSchema,
+});
+
 export const adminLoginSchema = z.object({
   email: textSchema.toLowerCase().email("Email must be valid."),
   password: z.string().min(1, "Password is required."),

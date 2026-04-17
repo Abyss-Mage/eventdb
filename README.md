@@ -3,7 +3,7 @@
 Phase 1 foundation for the esports management platform:
 
 - Team registration API and UI
-- Solo (free-agent) registration API and UI
+- Solo player registration API and UI
 - Admin approval/rejection API and dashboard UI
 - Admin email/password login with Appwrite session cookie auth
 - Admin sidebar navigation with sectioned dashboard pages
@@ -42,6 +42,17 @@ Required server configuration:
 - `RIOT_REQUEST_TIMEOUT_MS` (optional, defaults to `10000`)
 - `RIOT_MAX_RETRIES` (optional, defaults to `3`)
 - `RIOT_INITIAL_BACKOFF_MS` (optional, defaults to `500`)
+
+## Admin Login Troubleshooting
+
+If `/api/admin/auth/login` returns a setup/configuration error:
+
+1. In Appwrite Console -> Auth -> Settings, confirm **Email/Password** auth is enabled.
+2. Confirm `APPWRITE_ENDPOINT` and `APPWRITE_PROJECT_ID` point to the same Appwrite project where the admin user exists.
+3. Confirm `APPWRITE_API_KEY` belongs to that same project and includes the scopes required by server-side admin flows (database access, team membership reads, and user session management). Admin login session creation must run through an API-key-backed server request so Appwrite returns `session.secret`.
+4. Confirm the admin user is a member of one of the IDs in `APPWRITE_ADMIN_TEAM_ID` (or `APPWRITE_ADMIN_TEAM_IDS`).
+
+If login returns **Invalid email or password**, credentials are incorrect for that Appwrite project user.
 
 ## Riot Verification File
 
@@ -91,6 +102,7 @@ Create tables in the configured database:
 - `name`, `riotId`, `discordId`, `preferredRole`, `eventId`, `status`
 - `email`, `currentRank`, `peakRank` (optional)
 - `registrationId` (optional, used by admin legacy path)
+- `assignedTeamId`, `assignedAt` (optional, set by admin team-builder flows)
 
 ### Query/index recommendation
 
@@ -172,6 +184,10 @@ Registration behavior:
 - `POST /api/admin/mvp/recompute`
 - `GET /api/admin/riot/config`
 - `POST /api/admin/riot/sync`
+- `GET /api/admin/solo-pool?eventId=<event-id>&limit=<1-200>`
+- `GET /api/admin/teams/underfilled?eventId=<event-id>&limit=<1-200>`
+- `POST /api/admin/teams/randomize`
+- `POST /api/admin/teams/assign-solo`
 - `POST /api/admin/auth/login`
 - `POST /api/admin/auth/logout`
 - `GET /api/admin/auth/session`
@@ -193,6 +209,7 @@ Admin dashboard routes:
 - `/dashboard/player-stats`
 - `/dashboard/mvp`
 - `/dashboard/riot-sync`
+- `/dashboard/team-builder`
 - `/dashboard/past-events` (read-only historical metadata + outcomes)
 - `/dashboard/settings`
 - All `/dashboard/*` routes share the same guard behavior: authenticated admin session + admin team membership + completed TOTP 2FA (otherwise redirect to `/admin/login`).
@@ -231,6 +248,18 @@ Riot sync notes:
   - Body: `{ "eventId": "<event-id>", "matchIds": ["optional-match-id"], "playerIds": ["optional-player-id"], "maxMatchesPerPlayer": 5 }`
 - Check config state with:
   - `GET /api/admin/riot/config`
+
+Team builder notes:
+
+- Solo-player pool management is admin-protected.
+- Create teams of 5 from **selected** solo players:
+  - `POST /api/admin/teams/randomize`
+  - Body: `{ "eventId": "<event-id>", "soloPlayerIds": ["<solo-player-id>"] }`
+  - `soloPlayerIds` count must be divisible by 5.
+- Assign selected solo players to an existing underfilled team:
+  - `POST /api/admin/teams/assign-solo`
+  - Body: `{ "eventId": "<event-id>", "teamId": "<team-id>", "soloPlayerIds": ["<solo-player-id>"] }`
+  - Target team must have fewer than 5 players and enough remaining slots.
 
 Admin audit notes:
 

@@ -146,13 +146,13 @@ export function SettingsClient() {
   return (
     <section className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-xl font-semibold">Admin Settings</h2>
+        <h2 className="type-title">Admin Settings</h2>
         <div className="flex items-center gap-2">
           <button
             type="button"
             onClick={() => void refreshSettings()}
             disabled={isLoading}
-            className="rounded-md border border-zinc-300 px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-70 dark:border-zinc-700"
+            className="btn-base btn-secondary px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-70"
           >
             {isLoading ? "Refreshing..." : "Refresh"}
           </button>
@@ -160,7 +160,7 @@ export function SettingsClient() {
             type="button"
             disabled={isLoggingOut}
             onClick={() => void logout()}
-            className="rounded-md border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-700"
+            className="btn-base btn-ghost px-3 py-2 text-sm"
           >
             {isLoggingOut ? "Logging out..." : "Log out"}
           </button>
@@ -168,42 +168,42 @@ export function SettingsClient() {
       </div>
 
       {errorMessage ? (
-        <p className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300">
+        <p className="status-message status-danger">
           {errorMessage}
         </p>
       ) : null}
       {isLoading ? (
-        <p className="rounded-md border border-zinc-200 bg-zinc-50 p-3 text-sm text-zinc-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300">
+        <p className="status-message status-default">
           Loading settings...
         </p>
       ) : null}
       {!isLoading && !errorMessage && !authData && !riotConfig ? (
-        <p className="rounded-md border border-zinc-200 bg-zinc-50 p-3 text-sm text-zinc-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300">
+        <p className="status-message status-default">
           No settings data is available right now.
         </p>
       ) : null}
 
       {authData ? (
-        <article className="rounded-xl border border-zinc-200 bg-white p-5 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
-          <h3 className="text-lg font-semibold">Session</h3>
-          <div className="mt-3 space-y-1 text-sm text-zinc-600 dark:text-zinc-300">
+        <article className="surface-base surface-elevated p-5">
+          <h3 className="type-subtitle">Session</h3>
+          <div className="mt-3 space-y-1 text-sm text-muted">
             <p>
-              <span className="font-medium">User:</span> {authData.user.email}
+              <span className="font-medium text-soft">User:</span> {authData.user.email}
             </p>
             <p>
-              <span className="font-medium">Session ID:</span>{" "}
+              <span className="font-medium text-soft">Session ID:</span>{" "}
               <span className="font-mono text-xs">{authData.session.id}</span>
             </p>
             <p>
-              <span className="font-medium">Expires:</span>{" "}
+              <span className="font-medium text-soft">Expires:</span>{" "}
               {new Date(authData.session.expire).toLocaleString()}
             </p>
             <p>
-              <span className="font-medium">MFA Enabled:</span>{" "}
+              <span className="font-medium text-soft">MFA Enabled:</span>{" "}
               {authData.mfa.mfaEnabled ? "Yes" : "No"}
             </p>
             <p>
-              <span className="font-medium">MFA Verified:</span>{" "}
+              <span className="font-medium text-soft">MFA Verified:</span>{" "}
               {authData.mfa.verified ? "Yes" : "No"}
             </p>
           </div>
@@ -211,19 +211,20 @@ export function SettingsClient() {
       ) : null}
 
       {riotConfig ? (
-        <article className="rounded-xl border border-zinc-200 bg-white p-5 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
-          <h3 className="text-lg font-semibold">Riot Integration</h3>
-          <div className="mt-3 space-y-1 text-sm text-zinc-600 dark:text-zinc-300">
+        <article className="surface-base surface-elevated p-5">
+          <h3 className="type-subtitle">Riot Integration</h3>
+          <div className="mt-3 space-y-1 text-sm text-muted">
             <p>
-              <span className="font-medium">Configured:</span>{" "}
+              <span className="font-medium text-soft">Configured:</span>{" "}
               {riotConfig.configured ? "Yes" : "No"}
             </p>
             <p>
-              <span className="font-medium">Platform Region:</span>{" "}
+              <span className="font-medium text-soft">Platform Region:</span>{" "}
               {riotConfig.platformRegion}
             </p>
             <p>
-              <span className="font-medium">Routing Region:</span> {riotConfig.routingRegion}
+              <span className="font-medium text-soft">Routing Region:</span>{" "}
+              {riotConfig.routingRegion}
             </p>
           </div>
         </article>

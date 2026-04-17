@@ -321,15 +321,15 @@ export function AdminTwoFactorFlow({
   }
 
   return (
-    <div className="space-y-4 rounded-xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
-      <p className="text-sm text-zinc-600 dark:text-zinc-300">
-        Signed in as <span className="font-medium">{email}</span>
+    <div className="space-y-4">
+      <p className="text-sm text-muted">
+        Continuing as <span className="font-medium break-all">{email}</span>
       </p>
 
       {mfaState.setupRequired ? (
         <div className="space-y-4">
-          <h2 className="text-xl font-semibold">Set up TOTP</h2>
-          <p className="text-sm text-zinc-600 dark:text-zinc-300">
+          <h2 className="type-title">Set up TOTP</h2>
+          <p className="text-sm text-muted">
             Add a TOTP authenticator app, then enter the 6-digit OTP.
           </p>
 
@@ -337,15 +337,15 @@ export function AdminTwoFactorFlow({
             type="button"
             disabled={isBusy}
             onClick={() => void startEnrollment()}
-            className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-700"
+            className="btn-base btn-secondary w-full"
           >
             {totpSecret ? "Regenerate TOTP Secret" : "Create TOTP Authenticator"}
           </button>
 
           {totpUri ? (
             <div className="space-y-2">
-              <label className="text-sm font-medium">Scan QR in Authenticator</label>
-              <div className="inline-flex rounded-md border border-zinc-300 p-2 dark:border-zinc-700">
+              <label className="field-label">Scan QR in Authenticator</label>
+              <div className="surface-base surface-subtle inline-flex p-2">
                 {totpQrDataUrl ? (
                   <Image
                     src={totpQrDataUrl}
@@ -355,34 +355,34 @@ export function AdminTwoFactorFlow({
                     unoptimized
                   />
                 ) : (
-                  <p className="px-4 py-8 text-xs text-zinc-500">Generating QR code...</p>
+                  <p className="px-4 py-8 text-xs text-muted">Generating QR code...</p>
                 )}
               </div>
               {qrErrorMessage ? (
-                <p className="text-xs text-amber-600">{qrErrorMessage}</p>
+                <p className="text-xs text-accent">{qrErrorMessage}</p>
               ) : null}
-              <label className="text-sm font-medium">TOTP URI</label>
+              <label className="field-label">TOTP URI</label>
               <textarea
                 readOnly
                 value={totpUri}
-                className="h-24 w-full rounded-md border border-zinc-300 px-3 py-2 text-xs dark:border-zinc-700 dark:bg-zinc-950"
+                className="textarea-control h-24 text-xs"
               />
             </div>
           ) : null}
 
           {totpSecret ? (
             <div className="space-y-2">
-              <label className="text-sm font-medium">Manual setup secret</label>
+              <label className="field-label">Manual setup secret</label>
               <input
                 readOnly
                 value={totpSecret}
-                className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-950"
+                className="input-control"
               />
             </div>
           ) : null}
 
           <form onSubmit={(event) => void verifyEnrollment(event)} className="space-y-2">
-            <label htmlFor="setup-otp" className="text-sm font-medium">
+            <label htmlFor="setup-otp" className="field-label">
               Verification OTP
             </label>
             <input
@@ -392,12 +392,12 @@ export function AdminTwoFactorFlow({
               value={enrollmentOtp}
               onChange={(event) => setEnrollmentOtp(event.target.value)}
               required
-              className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-950"
+              className="input-control"
             />
             <button
               type="submit"
               disabled={isBusy}
-              className="w-full rounded-md bg-zinc-900 px-3 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-70 dark:bg-zinc-100 dark:text-zinc-900"
+              className="btn-base btn-primary w-full"
             >
               Verify TOTP Setup
             </button>
@@ -407,18 +407,18 @@ export function AdminTwoFactorFlow({
 
       {!mfaState.setupRequired && mfaState.challengeRequired ? (
         <div className="space-y-4">
-          <h2 className="text-xl font-semibold">Verify TOTP Challenge</h2>
+          <h2 className="type-title">Verify TOTP Challenge</h2>
           <button
             type="button"
             disabled={isBusy}
             onClick={() => void createChallenge()}
-            className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-700"
+            className="btn-base btn-secondary w-full"
           >
             {challengeId ? "Regenerate Challenge" : "Create Challenge"}
           </button>
 
           <form onSubmit={(event) => void verifyChallenge(event)} className="space-y-2">
-            <label htmlFor="challenge-otp" className="text-sm font-medium">
+            <label htmlFor="challenge-otp" className="field-label">
               Challenge OTP
             </label>
             <input
@@ -428,12 +428,12 @@ export function AdminTwoFactorFlow({
               value={challengeOtp}
               onChange={(event) => setChallengeOtp(event.target.value)}
               required
-              className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-950"
+              className="input-control"
             />
             <button
               type="submit"
               disabled={isBusy || !challengeId}
-              className="w-full rounded-md bg-zinc-900 px-3 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-70 dark:bg-zinc-100 dark:text-zinc-900"
+              className="btn-base btn-primary w-full"
             >
               Verify Challenge
             </button>
@@ -443,29 +443,31 @@ export function AdminTwoFactorFlow({
 
       <div className="space-y-2">
         <div className="flex items-center justify-between gap-3">
-          <h2 className="text-sm font-semibold">Recovery Codes</h2>
+          <h2 className="type-label">Recovery Codes</h2>
           <button
             type="button"
             disabled={isBusy}
             onClick={() => void loadRecoveryCodes()}
-            className="rounded-md border border-zinc-300 px-3 py-1 text-xs dark:border-zinc-700"
+            className="btn-base btn-ghost px-3 py-1 text-xs"
           >
             Load Codes
           </button>
         </div>
         {recoveryCodes.length > 0 ? (
-          <ul className="grid grid-cols-2 gap-2 rounded-md border border-zinc-200 p-3 font-mono text-xs dark:border-zinc-800">
+          <ul className="surface-base surface-subtle grid grid-cols-1 gap-2 p-3 font-mono text-xs sm:grid-cols-2">
             {recoveryCodes.map((code) => (
-              <li key={code}>{code}</li>
+              <li key={code} className="break-all">
+                {code}
+              </li>
             ))}
           </ul>
         ) : (
-          <p className="text-xs text-zinc-500">No recovery codes loaded yet.</p>
+          <p className="text-xs text-muted">No recovery codes loaded yet.</p>
         )}
       </div>
 
-      {message ? <p className="text-sm text-emerald-600">{message}</p> : null}
-      {errorMessage ? <p className="text-sm text-red-600">{errorMessage}</p> : null}
+      {message ? <p className="text-sm text-success">{message}</p> : null}
+      {errorMessage ? <p className="text-danger text-sm">{errorMessage}</p> : null}
     </div>
   );
 }

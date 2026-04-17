@@ -1845,7 +1845,7 @@ export function EventManagementClient({
                 className="rounded-lg border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-700 dark:bg-zinc-950"
               >
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <p className="font-mono text-xs text-zinc-500">{match.id}</p>
+                  <p className="font-mono text-xs text-zinc-500 break-all">{match.id}</p>
                   <p className="rounded-full bg-zinc-100 px-2 py-1 text-xs font-semibold uppercase text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
                     {formatMatchStatus(match.status)}
                   </p>
@@ -1926,7 +1926,7 @@ export function EventManagementClient({
 
           {activeEventId && standings.length > 0 ? (
             <div className="overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-700">
-              <table className="min-w-full divide-y divide-zinc-200 text-sm dark:divide-zinc-700">
+              <table className="w-full min-w-[52rem] divide-y divide-zinc-200 text-sm dark:divide-zinc-700">
                 <thead className="bg-zinc-50 dark:bg-zinc-950">
                   <tr>
                     <th className="px-3 py-2 text-left font-medium text-zinc-600 dark:text-zinc-300">
@@ -2044,7 +2044,7 @@ export function EventManagementClient({
 
           {activeEventId && mvpSummary && mvpSummary.candidates.length > 0 ? (
             <div className="overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-700">
-              <table className="min-w-full divide-y divide-zinc-200 text-sm dark:divide-zinc-700">
+              <table className="w-full min-w-[52rem] divide-y divide-zinc-200 text-sm dark:divide-zinc-700">
                 <thead className="bg-zinc-50 dark:bg-zinc-950">
                   <tr>
                     <th className="px-3 py-2 text-right font-medium text-zinc-600 dark:text-zinc-300">
@@ -2354,7 +2354,7 @@ export function EventManagementClient({
 
           {activeEventId && visiblePlayerStats.length > 0 ? (
             <div className="overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-700">
-              <table className="min-w-full divide-y divide-zinc-200 text-sm dark:divide-zinc-700">
+              <table className="w-full min-w-[52rem] divide-y divide-zinc-200 text-sm dark:divide-zinc-700">
                 <thead className="bg-zinc-50 dark:bg-zinc-950">
                   <tr>
                     <th className="px-3 py-2 text-left font-medium text-zinc-600 dark:text-zinc-300">
@@ -2460,10 +2460,11 @@ export function EventManagementClient({
                 <div className="mt-3 grid gap-1 text-sm text-zinc-600 dark:text-zinc-300">
                   <p>
                     <span className="font-medium">ID:</span>{" "}
-                    <span className="font-mono">{event.id}</span>
+                    <span className="font-mono break-all">{event.id}</span>
                   </p>
                   <p>
-                    <span className="font-medium">Slug:</span> {event.slug}
+                    <span className="font-medium">Slug:</span>{" "}
+                    <span className="break-all">{event.slug}</span>
                   </p>
                   <p>
                     <span className="font-medium">Code:</span> {event.code}

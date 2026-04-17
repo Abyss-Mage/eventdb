@@ -1,3 +1,5 @@
+import { SectionHeader, SurfacePanel } from "@/app/ui/foundation";
+
 type DashboardPageHeaderProps = {
   title: string;
   description: string;
@@ -5,9 +7,8 @@ type DashboardPageHeaderProps = {
 
 export function DashboardPageHeader({ title, description }: DashboardPageHeaderProps) {
   return (
-    <header className="space-y-2">
-      <h1 className="text-3xl font-bold tracking-tight">{title}</h1>
-      <p className="text-zinc-600 dark:text-zinc-300">{description}</p>
-    </header>
+    <SurfacePanel variant="glass" className="p-5">
+      <SectionHeader title={title} description={description} />
+    </SurfacePanel>
   );
 }

@@ -450,8 +450,8 @@ export function PastEventsClient() {
       : null;
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[340px_minmax(0,1fr)]">
-      <section className="space-y-4 rounded-xl border border-zinc-200 bg-white p-5 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+    <div className="grid gap-6 xl:grid-cols-[340px_minmax(0,1fr)]">
+      <section className="min-w-0 space-y-4 rounded-xl border border-zinc-200 bg-white p-5 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
             <h2 className="text-xl font-semibold">Historical Events</h2>
@@ -545,7 +545,7 @@ export function PastEventsClient() {
         </div>
       </section>
 
-      <div className="space-y-6">
+      <div className="min-w-0 space-y-6">
         {!activeEvent ? (
           <section className="rounded-xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
             <p className="text-sm text-zinc-600 dark:text-zinc-300">
@@ -587,10 +587,11 @@ export function PastEventsClient() {
               <div className="grid gap-3 text-sm sm:grid-cols-2">
                 <p>
                   <span className="font-medium">Event ID:</span>{" "}
-                  <span className="font-mono text-xs">{activeEvent.id}</span>
+                  <span className="font-mono text-xs break-all">{activeEvent.id}</span>
                 </p>
                 <p>
-                  <span className="font-medium">Slug:</span> {activeEvent.slug}
+                  <span className="font-medium">Slug:</span>{" "}
+                  <span className="break-all">{activeEvent.slug}</span>
                 </p>
                 <p>
                   <span className="font-medium">Event Window:</span>{" "}
@@ -644,7 +645,7 @@ export function PastEventsClient() {
 
               {standings.length > 0 ? (
                 <div className="overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-700">
-                  <table className="min-w-full divide-y divide-zinc-200 text-sm dark:divide-zinc-700">
+                  <table className="w-full min-w-[52rem] divide-y divide-zinc-200 text-sm dark:divide-zinc-700">
                     <thead className="bg-zinc-50 dark:bg-zinc-950">
                       <tr>
                         <th className="px-3 py-2 text-left font-medium text-zinc-600 dark:text-zinc-300">
@@ -733,7 +734,7 @@ export function PastEventsClient() {
 
               {sortedMatches.length > 0 ? (
                 <div className="overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-700">
-                  <table className="min-w-full divide-y divide-zinc-200 text-sm dark:divide-zinc-700">
+                  <table className="w-full min-w-[52rem] divide-y divide-zinc-200 text-sm dark:divide-zinc-700">
                     <thead className="bg-zinc-50 dark:bg-zinc-950">
                       <tr>
                         <th className="px-3 py-2 text-left font-medium text-zinc-600 dark:text-zinc-300">
@@ -809,7 +810,7 @@ export function PastEventsClient() {
 
               {mvpSummary && mvpSummary.candidates.length > 0 ? (
                 <div className="overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-700">
-                  <table className="min-w-full divide-y divide-zinc-200 text-sm dark:divide-zinc-700">
+                  <table className="w-full min-w-[52rem] divide-y divide-zinc-200 text-sm dark:divide-zinc-700">
                     <thead className="bg-zinc-50 dark:bg-zinc-950">
                       <tr>
                         <th className="px-3 py-2 text-right font-medium text-zinc-600 dark:text-zinc-300">

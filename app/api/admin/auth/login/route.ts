@@ -2,6 +2,7 @@ import { AppwriteException } from "node-appwrite";
 
 import {
   createAdminEmailPasswordSession,
+  MissingAdminSessionSecretError,
   revokeAdminSession,
   setAdminSessionCookie,
 } from "@/lib/appwrite/auth-session";
@@ -15,6 +16,119 @@ import {
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+type LoginFailureClassification = {
+  message: string;
+  status: number;
+  reason:
+    | "invalid_credentials"
+    | "rate_limited"
+    | "auth_method_disabled"
+    | "appwrite_config_error"
+    | "appwrite_unauthorized"
+    | "appwrite_auth_error";
+};
+
+function classifyAppwriteLoginError(
+  error: AppwriteException,
+): LoginFailureClassification {
+  const errorTypeRaw = String(error.type ?? "").toLowerCase();
+  const errorMessageRaw = String(error.message ?? "").toLowerCase();
+  const errorType = errorTypeRaw.replaceAll("_", " ").replaceAll("-", " ");
+  const errorMessage = errorMessageRaw.replaceAll("_", " ").replaceAll("-", " ");
+  const combined = `${errorTypeRaw} ${errorMessageRaw} ${errorType} ${errorMessage}`;
+
+  const hasAny = (...patterns: string[]) => {
+    return patterns.some((pattern) => {
+      const normalizedPattern = pattern.toLowerCase();
+      const friendlyPattern = normalizedPattern
+        .replaceAll("_", " ")
+        .replaceAll("-", " ");
+      return (
+        combined.includes(normalizedPattern) || combined.includes(friendlyPattern)
+      );
+    });
+  };
+  const hasAllInCombined = (...patterns: string[]) =>
+    patterns.every((pattern) => hasAny(pattern));
+  const errorTypeDetail =
+    errorTypeRaw.length > 0 ? ` (Appwrite type: ${errorTypeRaw})` : "";
+
+  if (error.code === 429 || hasAny("rate limit", "too many requests")) {
+    return {
+      message: "Too many login attempts. Please try again later.",
+      status: 429,
+      reason: "rate_limited",
+    };
+  }
+
+  if (
+    hasAny(
+      "user_invalid_credentials",
+      "invalid credentials",
+      "invalid email or password",
+      "password is invalid",
+      "password is incorrect",
+    )
+  ) {
+    return {
+      message: "Invalid email or password.",
+      status: 401,
+      reason: "invalid_credentials",
+    };
+  }
+
+  if (
+    hasAny("user_auth_method_unsupported") ||
+    hasAllInCombined("auth", "method", "disabled") ||
+    hasAllInCombined("email/password", "disabled") ||
+    hasAllInCombined("email password", "disabled") ||
+    hasAllInCombined("email/password", "not enabled") ||
+    hasAllInCombined("email password", "not enabled")
+  ) {
+    return {
+      message:
+        "Email/password login is disabled in Appwrite. Enable it in Auth settings and try again.",
+      status: 503,
+      reason: "auth_method_disabled",
+    };
+  }
+
+  if (
+    hasAny(
+      "missing scope",
+      "unauthorized scope",
+      "general_unauthorized_scope",
+      "api key",
+      "project not found",
+      "project id",
+      "invalid endpoint",
+      "permission",
+    )
+  ) {
+    return {
+      message:
+        `Appwrite server configuration error${errorTypeDetail}. Check endpoint/project ID and ensure APPWRITE_API_KEY has users.read, users.write, databases.read, and databases.write scopes.`,
+      status: 500,
+      reason: "appwrite_config_error",
+    };
+  }
+
+  if (error.code === 401) {
+    return {
+      message:
+        `Appwrite rejected this login request as unauthorized${errorTypeDetail}. If credentials are correct, verify Email/Password auth is enabled and APPWRITE_API_KEY includes users.read + users.write scopes in this same project.`,
+      status: 401,
+      reason: "appwrite_unauthorized",
+    };
+  }
+
+  return {
+    message: "Unable to sign in due to an Appwrite authentication error.",
+    status: error.code >= 400 && error.code < 600 ? error.code : 500,
+    reason: "appwrite_auth_error",
+  };
+}
 
 export async function POST(request: Request) {
   let payload: unknown;
@@ -127,30 +241,40 @@ export async function POST(request: Request) {
     setAdminSessionCookie(response, auth.sessionSecret, auth.session.expire);
     return response;
   } catch (error) {
-    if (error instanceof AppwriteException) {
-      if (error.code === 400 || error.code === 401) {
-        await writeAdminAuditLogBestEffort({
-          actorUserId: "anonymous",
-          actorEmail: attemptedEmail,
-          action: "admin.login",
-          resourceType: "admin_session",
-          status: "failure",
-          details: { reason: "invalid_credentials" },
-        });
-        return failure("Invalid email or password.", 401);
-      }
+    if (error instanceof MissingAdminSessionSecretError) {
+      await writeAdminAuditLogBestEffort({
+        actorUserId: "anonymous",
+        actorEmail: attemptedEmail,
+        action: "admin.login",
+        resourceType: "admin_session",
+        status: "failure",
+        details: {
+          reason: "missing_session_secret",
+          errorMessage: error.message,
+        },
+      });
+      return failure(
+        "Appwrite session secret was not returned. Check Appwrite API key setup and login configuration.",
+        500,
+      );
+    }
 
-      if (error.code === 429) {
-        await writeAdminAuditLogBestEffort({
-          actorUserId: "anonymous",
-          actorEmail: attemptedEmail,
-          action: "admin.login",
-          resourceType: "admin_session",
-          status: "failure",
-          details: { reason: "rate_limited" },
-        });
-        return failure("Too many login attempts. Please try again later.", 429);
-      }
+    if (error instanceof AppwriteException) {
+      const classification = classifyAppwriteLoginError(error);
+      await writeAdminAuditLogBestEffort({
+        actorUserId: "anonymous",
+        actorEmail: attemptedEmail,
+        action: "admin.login",
+        resourceType: "admin_session",
+        status: "failure",
+        details: {
+          reason: classification.reason,
+          appwriteCode: error.code,
+          appwriteType: error.type,
+          appwriteMessage: error.message,
+        },
+      });
+      return failure(classification.message, classification.status);
     }
 
     await writeAdminAuditLogBestEffort({

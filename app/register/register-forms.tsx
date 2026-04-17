@@ -1,7 +1,7 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { FormEvent, ReactNode, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 
 import {
   soloRegistrationSchema,
@@ -14,6 +14,13 @@ import type {
   TeamPlayerInput,
   TeamRegistrationInput,
 } from "@/lib/domain/types";
+import {
+  ChoiceCard,
+  cx,
+  FormField,
+  StatusMessage,
+  SurfacePanel,
+} from "@/app/ui/foundation";
 
 type ApiEnvelope<T> =
   | { success: true; data: T }
@@ -26,6 +33,24 @@ type SubmissionMessage = {
 
 type RegistrationMode = "chooser" | "team" | "solo";
 type TeamPlayerForm = TeamPlayerInput;
+type RegisterFormsProps = {
+  eventId: string;
+  registrationToken: string;
+  lockMode?: Exclude<RegistrationMode, "chooser">;
+};
+type RegistrationFormHeaderProps = {
+  eyebrow: string;
+  title: string;
+  description?: ReactNode;
+  backLabel?: string;
+  onBack?: () => void;
+};
+type RegistrationFormSectionProps = {
+  title?: string;
+  meta?: ReactNode;
+  className?: string;
+  children: ReactNode;
+};
 
 const ROLE_OPTIONS: Array<{ value: PlayerRole; label: string }> = [
   { value: "duelist", label: "Duelist" },
@@ -64,12 +89,73 @@ function formatValidationIssues(issues: { message: string }[]) {
   return Array.from(new Set(issues.map((issue) => issue.message)));
 }
 
-export function RegisterForms() {
-  const searchParams = useSearchParams();
-  const eventId = (searchParams.get("eventId") ?? "").trim();
-  const registrationToken = (searchParams.get("token") ?? "").trim();
+function RegistrationFormHeader({
+  eyebrow,
+  title,
+  description,
+  backLabel,
+  onBack,
+}: RegistrationFormHeaderProps) {
+  return (
+    <div className="registration-form-header">
+      <div className="space-y-2">
+        <p className="type-eyebrow">{eyebrow}</p>
+        <h2 className="type-title">{title}</h2>
+        {description ? <p className="text-sm text-muted">{description}</p> : null}
+      </div>
+      {onBack && backLabel ? (
+        <button
+          type="button"
+          onClick={onBack}
+          className="btn-base btn-ghost px-3 py-1.5 text-xs"
+        >
+          {backLabel}
+        </button>
+      ) : null}
+    </div>
+  );
+}
 
-  const [mode, setMode] = useState<RegistrationMode>("chooser");
+function RegistrationFormSection({
+  title,
+  meta,
+  className,
+  children,
+}: RegistrationFormSectionProps) {
+  return (
+    <section className={cx("registration-form-section", className)}>
+      {title || meta ? (
+        <div className="registration-form-section-head">
+          {title ? <h3 className="type-eyebrow">{title}</h3> : null}
+          {meta ? <div className="type-body-sm text-muted">{meta}</div> : null}
+        </div>
+      ) : null}
+      <div className="registration-form-section-frame">{children}</div>
+    </section>
+  );
+}
+
+function ValidationIssueList({ issues }: { issues: string[] }) {
+  if (issues.length === 0) {
+    return null;
+  }
+
+  return (
+    <ul className="registration-validation-list text-sm text-danger">
+      {issues.map((message) => (
+        <li key={message}>• {message}</li>
+      ))}
+    </ul>
+  );
+}
+
+export function RegisterForms({
+  eventId,
+  registrationToken,
+  lockMode,
+}: RegisterFormsProps) {
+  const router = useRouter();
+  const [mode, setMode] = useState<RegistrationMode>(lockMode ?? "chooser");
 
   const [teamName, setTeamName] = useState("");
   const [captainDiscordId, setCaptainDiscordId] = useState("");
@@ -95,6 +181,17 @@ export function RegisterForms() {
 
   const canAddPlayer = players.length < 6;
   const canRemovePlayer = players.length > 2;
+  const querySuffix = useMemo(() => {
+    const params = new URLSearchParams();
+    if (eventId) {
+      params.set("eventId", eventId);
+    }
+    if (registrationToken) {
+      params.set("token", registrationToken);
+    }
+    const query = params.toString();
+    return query ? `?${query}` : "";
+  }, [eventId, registrationToken]);
 
   const teamPayloadCandidate = useMemo(
     (): TeamRegistrationInput => ({
@@ -166,7 +263,20 @@ export function RegisterForms() {
     : "Submit Team Registration";
   const soloButtonText = soloSubmitting
     ? "Submitting player..."
-    : "Submit Solo Registration";
+    : "Submit Solo Player Registration";
+  const backButtonLabel = lockMode ? "Back to options" : "Back";
+
+  function navigateToForm(nextMode: Exclude<RegistrationMode, "chooser">) {
+    router.push(`/register/${nextMode}${querySuffix}`);
+  }
+
+  function goBackToChooser() {
+    if (lockMode) {
+      router.push(`/register${querySuffix}`);
+      return;
+    }
+    setMode("chooser");
+  }
 
   function updatePlayer(
     index: number,
@@ -285,7 +395,7 @@ export function RegisterForms() {
 
       setSoloMessage({
         tone: "success",
-        text: `Free agent registration submitted. ID: ${body.data.registrationId}`,
+        text: `Solo player registration submitted. ID: ${body.data.registrationId}`,
       });
       setSoloPlayer({
         name: "",
@@ -307,401 +417,423 @@ export function RegisterForms() {
 
   if (mode === "chooser") {
     return (
-      <div className="grid gap-6 md:grid-cols-2">
-        <button
-          type="button"
-          onClick={() => setMode("team")}
-          className="rounded-xl border border-zinc-200 bg-white p-6 text-left shadow-sm transition hover:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-900"
-        >
-          <h2 className="text-xl font-semibold">Team Registration</h2>
-          <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-300">
-            Register a full team with 2-6 players, captain validation, and role
-            assignments.
-          </p>
-        </button>
-        <button
-          type="button"
-          onClick={() => setMode("solo")}
-          className="rounded-xl border border-zinc-200 bg-white p-6 text-left shadow-sm transition hover:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-900"
-        >
-          <h2 className="text-xl font-semibold">Solo Registration</h2>
-          <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-300">
-            Register as a free agent with preferred role and optional rank details.
-          </p>
-        </button>
-      </div>
+      <SurfacePanel
+        variant="elevated"
+        className="registration-form-surface registration-form-surface--chooser space-y-5 p-4 sm:p-6"
+      >
+        <RegistrationFormHeader
+          eyebrow="Select Registration Type"
+          title="Start your submission"
+          description="Team registration supports 2-6 players. Solo registration adds players to the solo player pool for admin team assignment."
+        />
+
+        <div className="registration-choice-grid">
+          <ChoiceCard
+            title="Team Registration"
+            description="Register a full team with captain validation, role assignments, and up to six players."
+            meta="2-6 players"
+            onClick={() => navigateToForm("team")}
+            className="registration-choice-card"
+          />
+          <ChoiceCard
+            title="Solo Registration"
+            description="Register as a solo player with preferred role and optional rank details."
+            meta="Solo player pool"
+            onClick={() => navigateToForm("solo")}
+            className="registration-choice-card"
+          />
+        </div>
+      </SurfacePanel>
     );
   }
 
   if (mode === "team") {
     return (
-      <form
-        onSubmit={submitTeam}
-        className="rounded-xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-900"
+      <SurfacePanel
+        variant="elevated"
+        className="registration-form-surface border-red-300/40 p-4 sm:p-6 lg:p-7"
       >
-        <div className="mb-6 flex items-center justify-between gap-3">
-          <h2 className="text-xl font-semibold">Team Registration Form</h2>
-          <button
-            type="button"
-            onClick={() => setMode("chooser")}
-            className="rounded-md border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-700"
-          >
-            Back
-          </button>
-        </div>
+        <form onSubmit={submitTeam} className="registration-form-content space-y-6">
+          <RegistrationFormHeader
+            eyebrow="Team Entry"
+            title="Team Registration Form // Match Ops"
+            description="Build a complete roster, assign roles, and submit your competitive lineup."
+            backLabel={backButtonLabel}
+            onBack={goBackToChooser}
+          />
 
-        <section className="space-y-3">
-          <h3 className="text-sm font-semibold uppercase tracking-wide text-zinc-500">
-            Section 1: Team Info
-          </h3>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <label className="block text-sm font-medium">
-              Team Name
-              <input
-                value={teamName}
-                onChange={(event) => setTeamName(event.target.value)}
-                required
-                className="mt-1 w-full rounded-md border border-zinc-300 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-950"
-              />
-            </label>
-            <label className="block text-sm font-medium">
-              Captain Discord ID
-              <input
-                value={captainDiscordId}
-                onChange={(event) => setCaptainDiscordId(event.target.value)}
-                required
-                className="mt-1 w-full rounded-md border border-zinc-300 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-950"
-              />
-            </label>
-            <label className="block text-sm font-medium">
-              Email (optional)
-              <input
-                type="email"
-                value={teamEmail}
-                onChange={(event) => setTeamEmail(event.target.value)}
-                className="mt-1 w-full rounded-md border border-zinc-300 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-950"
-              />
-            </label>
-            <label className="block text-sm font-medium">
-              Team Logo URL (optional)
-              <input
-                value={teamLogoUrl}
-                onChange={(event) => setTeamLogoUrl(event.target.value)}
-                className="mt-1 w-full rounded-md border border-zinc-300 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-950"
-              />
-            </label>
-            <label className="block text-sm font-medium">
-              Team Tag (optional, max 5 chars)
-              <input
-                value={teamTag}
-                onChange={(event) => setTeamTag(event.target.value)}
-                maxLength={5}
-                className="mt-1 w-full rounded-md border border-zinc-300 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-950"
-              />
-            </label>
-            <div className="rounded-md border border-zinc-200 p-3 text-sm dark:border-zinc-700">
-              <p>
-                Event ID:{" "}
-                <span className="font-mono">{eventId || "(missing in URL)"}</span>
-              </p>
-              <p className="mt-1 text-zinc-500">
-                Source: <code>?eventId=...&amp;token=...</code>
-              </p>
-              <p className="mt-1">
-                Token:{" "}
-                <span className="font-mono">
-                  {registrationToken || "(not provided in URL)"}
-                </span>
-              </p>
+          <RegistrationFormSection title="Live status" className="space-y-3">
+            <div className="registration-form-status-grid">
+              <SurfacePanel variant="subtle" className="border-white/10 bg-slate-950/55 p-3">
+                <p className="text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-muted">
+                  Roster Cap
+                </p>
+                <p className="mt-1 text-sm font-semibold text-soft">{players.length}/6 Active</p>
+              </SurfacePanel>
+              <SurfacePanel variant="subtle" className="border-white/10 bg-slate-950/55 p-3">
+                <p className="text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-muted">
+                  Captain ID
+                </p>
+                <p className="mt-1 text-sm font-semibold text-soft">
+                  {captainDiscordId.trim() ? "Ready" : "Required"}
+                </p>
+              </SurfacePanel>
+              <SurfacePanel variant="subtle" className="border-white/10 bg-slate-950/55 p-3">
+                <p className="text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-muted">
+                  Validation
+                </p>
+                <p className="mt-1 text-sm font-semibold text-soft">
+                  {teamValidation.success ? "Green" : "Pending"}
+                </p>
+              </SurfacePanel>
             </div>
-          </div>
-        </section>
+          </RegistrationFormSection>
 
-        <section className="mt-7 space-y-4">
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold uppercase tracking-wide text-zinc-500">
-              Section 2: Players
-            </h3>
-            <p className="text-sm font-medium text-zinc-600 dark:text-zinc-300">
-              {players.length}/6 Players Added
-            </p>
-          </div>
+          <RegistrationFormSection title="Section 1: Team Intel" className="space-y-4">
+            <div className="grid gap-4 md:grid-cols-2">
+              <FormField label="Team Name">
+                <input
+                  value={teamName}
+                  onChange={(event) => setTeamName(event.target.value)}
+                  required
+                  className="input-control bg-slate-950/60"
+                />
+              </FormField>
+              <FormField label="Captain Discord ID">
+                <input
+                  value={captainDiscordId}
+                  onChange={(event) => setCaptainDiscordId(event.target.value)}
+                  required
+                  className="input-control bg-slate-950/60"
+                />
+              </FormField>
+              <FormField label="Email (optional)">
+                <input
+                  type="email"
+                  value={teamEmail}
+                  onChange={(event) => setTeamEmail(event.target.value)}
+                  className="input-control bg-slate-950/60"
+                />
+              </FormField>
+              <FormField label="Team Logo URL (optional)">
+                <input
+                  value={teamLogoUrl}
+                  onChange={(event) => setTeamLogoUrl(event.target.value)}
+                  className="input-control bg-slate-950/60"
+                />
+              </FormField>
+              <FormField label="Team Tag (optional, max 5 chars)">
+                <input
+                  value={teamTag}
+                  onChange={(event) => setTeamTag(event.target.value)}
+                  maxLength={5}
+                  className="input-control bg-slate-950/60"
+                />
+              </FormField>
+            </div>
+          </RegistrationFormSection>
 
-          {players.map((player, index) => (
-            <div
-              key={`team-player-${index}`}
-              className="rounded-md border border-zinc-200 p-4 dark:border-zinc-800"
-            >
-              <div className="mb-3 flex items-center justify-between gap-3">
-                <h4 className="text-sm font-semibold">Player {index + 1}</h4>
-                {canRemovePlayer ? (
-                  <button
-                    type="button"
-                    onClick={() => removePlayerSlot(index)}
-                    className="text-xs text-red-600 hover:underline"
+          <RegistrationFormSection
+            title="Section 2: Player Stack"
+            meta={`${players.length}/6 roster slots filled`}
+            className="space-y-4"
+          >
+            {players.map((player, index) => (
+              <SurfacePanel
+                key={`team-player-${index}`}
+                variant="subtle"
+                className="registration-player-card border-white/15 bg-slate-950/58 p-4"
+              >
+                <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex items-center gap-2">
+                    <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-full border border-red-300/50 bg-red-500/15 px-2 text-xs font-semibold text-red-100">
+                      {index + 1}
+                    </span>
+                    <h4 className="type-label">Player Slot</h4>
+                  </div>
+                  {canRemovePlayer ? (
+                    <button
+                      type="button"
+                      onClick={() => removePlayerSlot(index)}
+                      className="btn-base btn-danger px-2.5 py-1 text-xs"
+                    >
+                      Remove
+                    </button>
+                  ) : null}
+                </div>
+
+                <div className="grid gap-3 md:grid-cols-2">
+                  <input
+                    value={player.name}
+                    onChange={(event) =>
+                      updatePlayer(index, "name", event.target.value)
+                    }
+                    required
+                    placeholder="Player Name"
+                    className="input-control bg-slate-950/60"
+                  />
+                  <input
+                    value={player.riotId}
+                    onChange={(event) =>
+                      updatePlayer(index, "riotId", event.target.value)
+                    }
+                    required
+                    placeholder="Riot ID (Name#Tag)"
+                    className="input-control bg-slate-950/60"
+                  />
+                  <input
+                    value={player.discordId}
+                    onChange={(event) =>
+                      updatePlayer(index, "discordId", event.target.value)
+                    }
+                    required
+                    placeholder="Discord ID"
+                    className="input-control bg-slate-950/60"
+                  />
+                  <select
+                    value={player.role}
+                    onChange={(event) => updatePlayer(index, "role", event.target.value)}
+                    className="select-control bg-slate-950/60"
                   >
-                    Remove
-                  </button>
-                ) : null}
-              </div>
-
-              <div className="grid gap-3 sm:grid-cols-2">
-                <input
-                  value={player.name}
-                  onChange={(event) =>
-                    updatePlayer(index, "name", event.target.value)
-                  }
-                  required
-                  placeholder="Player Name"
-                  className="rounded-md border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-950"
-                />
-                <input
-                  value={player.riotId}
-                  onChange={(event) =>
-                    updatePlayer(index, "riotId", event.target.value)
-                  }
-                  required
-                  placeholder="Riot ID (Name#Tag)"
-                  className="rounded-md border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-950"
-                />
-                <input
-                  value={player.discordId}
-                  onChange={(event) =>
-                    updatePlayer(index, "discordId", event.target.value)
-                  }
-                  required
-                  placeholder="Discord ID"
-                  className="rounded-md border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-950"
-                />
-                <select
-                  value={player.role}
-                  onChange={(event) => updatePlayer(index, "role", event.target.value)}
-                  className="rounded-md border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-950"
-                >
-                  {ROLE_OPTIONS.map((role) => (
-                    <option key={role.value} value={role.value}>
-                      {role.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-          ))}
-
-          <button
-            type="button"
-            onClick={addPlayerSlot}
-            disabled={!canAddPlayer}
-            className="rounded-md border border-zinc-300 px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-60 dark:border-zinc-700"
-          >
-            Add Player
-          </button>
-        </section>
-
-        {teamValidationMessages.length > 0 ? (
-          <ul className="mt-5 space-y-1 text-sm text-red-600">
-            {teamValidationMessages.map((message) => (
-              <li key={message}>• {message}</li>
+                    {ROLE_OPTIONS.map((role) => (
+                      <option key={role.value} value={role.value}>
+                        {role.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </SurfacePanel>
             ))}
-          </ul>
-        ) : null}
 
-        <div className="mt-5">
-          <button
-            type="submit"
-            disabled={teamSubmitting || !teamValidation.success}
-            className="rounded-md bg-zinc-900 px-4 py-2 text-sm text-white disabled:cursor-not-allowed disabled:opacity-70 dark:bg-zinc-100 dark:text-zinc-900"
-          >
-            {teamButtonText}
-          </button>
-        </div>
+            <div className="grid gap-2 md:grid-cols-[auto_1fr] md:items-center">
+              <button
+                type="button"
+                onClick={addPlayerSlot}
+                disabled={!canAddPlayer}
+                className="btn-base btn-secondary w-full disabled:opacity-60 md:w-auto"
+              >
+                Add Player
+              </button>
+              <p className="text-xs text-muted">
+                Minimum 2 players required. Maximum 6 roster slots.
+              </p>
+            </div>
+          </RegistrationFormSection>
 
-        {teamMessage ? (
-          <p
-            className={`mt-4 text-sm ${
-              teamMessage.tone === "success" ? "text-emerald-600" : "text-red-600"
-            }`}
-          >
-            {teamMessage.text}
-          </p>
-        ) : null}
-      </form>
+          <ValidationIssueList issues={teamValidationMessages} />
+
+          <div className="registration-form-action-bar">
+            <div className="registration-form-action-copy">
+              <p className="text-sm font-semibold text-soft">Ready to submit this team roster?</p>
+              <p className="text-xs text-muted">
+                Submission routes to /api/register/team with existing validation rules.
+              </p>
+            </div>
+            <button
+              type="submit"
+              disabled={teamSubmitting || !teamValidation.success}
+              className="btn-base btn-primary w-full md:min-w-56 md:w-auto"
+            >
+              {teamButtonText}
+            </button>
+          </div>
+
+          {teamMessage ? (
+            <StatusMessage
+              tone={teamMessage.tone === "success" ? "success" : "danger"}
+              className="mt-1"
+            >
+              {teamMessage.text}
+            </StatusMessage>
+          ) : null}
+        </form>
+      </SurfacePanel>
     );
   }
 
   return (
-    <form
-      onSubmit={submitSolo}
-      className="rounded-xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-900"
+    <SurfacePanel
+      variant="elevated"
+      className="registration-form-surface border-blue-300/40 p-4 sm:p-6 lg:p-7"
     >
-      <div className="mb-6 flex items-center justify-between gap-3">
-        <h2 className="text-xl font-semibold">Free Agent Registration Form</h2>
-        <button
-          type="button"
-          onClick={() => setMode("chooser")}
-          className="rounded-md border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-700"
-        >
-          Back
-        </button>
-      </div>
+      <form onSubmit={submitSolo} className="registration-form-content space-y-6">
+        <RegistrationFormHeader
+          eyebrow="Solo Entry"
+          title="Solo Player Registration // Queue Intake"
+          description="Register your profile and role preference to join the assignment draft."
+          backLabel={backButtonLabel}
+          onBack={goBackToChooser}
+        />
 
-      <div className="grid gap-3">
-        <label className="block text-sm font-medium">
-          Player Name
-          <input
-            value={soloPlayer.name}
-            onChange={(event) =>
-              setSoloPlayer((current) => ({
-                ...current,
-                name: event.target.value,
-              }))
-            }
-            required
-            className="mt-1 w-full rounded-md border border-zinc-300 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-950"
-          />
-        </label>
-        <label className="block text-sm font-medium">
-          Riot ID
-          <input
-            value={soloPlayer.riotId}
-            onChange={(event) =>
-              setSoloPlayer((current) => ({
-                ...current,
-                riotId: event.target.value,
-              }))
-            }
-            required
-            placeholder="Name#Tag"
-            className="mt-1 w-full rounded-md border border-zinc-300 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-950"
-          />
-        </label>
-        <label className="block text-sm font-medium">
-          Discord ID
-          <input
-            value={soloPlayer.discordId}
-            onChange={(event) =>
-              setSoloPlayer((current) => ({
-                ...current,
-                discordId: event.target.value,
-              }))
-            }
-            required
-            className="mt-1 w-full rounded-md border border-zinc-300 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-950"
-          />
-        </label>
-        <label className="block text-sm font-medium">
-          Preferred Role
-          <select
-            value={soloPlayer.preferredRole}
-            onChange={(event) =>
-              setSoloPlayer((current) => ({
-                ...current,
-                preferredRole: event.target.value as PlayerRole,
-              }))
-            }
-            className="mt-1 w-full rounded-md border border-zinc-300 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-950"
+        <RegistrationFormSection title="Live status" className="space-y-3">
+          <div className="registration-form-status-grid">
+            <SurfacePanel variant="subtle" className="border-white/10 bg-slate-950/55 p-3">
+              <p className="text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-muted">
+                Role Preference
+              </p>
+              <p className="mt-1 text-sm font-semibold text-soft">
+                {soloPlayer.preferredRole}
+              </p>
+            </SurfacePanel>
+            <SurfacePanel variant="subtle" className="border-white/10 bg-slate-950/55 p-3">
+              <p className="text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-muted">
+                Queue Status
+              </p>
+              <p className="mt-1 text-sm font-semibold text-soft">
+                {soloValidation.success ? "Ready" : "Needs info"}
+              </p>
+            </SurfacePanel>
+            <SurfacePanel variant="subtle" className="border-white/10 bg-slate-950/55 p-3">
+              <p className="text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-muted">
+                Contact
+              </p>
+              <p className="mt-1 text-sm font-semibold text-soft">
+                {soloPlayer.discordId.trim() ? "Linked" : "Required"}
+              </p>
+            </SurfacePanel>
+          </div>
+        </RegistrationFormSection>
+
+        <RegistrationFormSection title="Player Profile" className="space-y-4">
+          <div className="grid gap-3 md:grid-cols-2">
+            <FormField label="Player Name">
+              <input
+                value={soloPlayer.name}
+                onChange={(event) =>
+                  setSoloPlayer((current) => ({
+                    ...current,
+                    name: event.target.value,
+                  }))
+                }
+                required
+                className="input-control bg-slate-950/60"
+              />
+            </FormField>
+            <FormField label="Riot ID">
+              <input
+                value={soloPlayer.riotId}
+                onChange={(event) =>
+                  setSoloPlayer((current) => ({
+                    ...current,
+                    riotId: event.target.value,
+                  }))
+                }
+                required
+                placeholder="Name#Tag"
+                className="input-control bg-slate-950/60"
+              />
+            </FormField>
+            <FormField label="Discord ID">
+              <input
+                value={soloPlayer.discordId}
+                onChange={(event) =>
+                  setSoloPlayer((current) => ({
+                    ...current,
+                    discordId: event.target.value,
+                  }))
+                }
+                required
+                className="input-control bg-slate-950/60"
+              />
+            </FormField>
+            <FormField label="Preferred Role">
+              <select
+                value={soloPlayer.preferredRole}
+                onChange={(event) =>
+                  setSoloPlayer((current) => ({
+                    ...current,
+                    preferredRole: event.target.value as PlayerRole,
+                    }))
+                }
+                className="select-control bg-slate-950/60"
+              >
+                {ROLE_OPTIONS.map((role) => (
+                  <option key={role.value} value={role.value}>
+                    {role.label}
+                  </option>
+                ))}
+              </select>
+            </FormField>
+            <FormField label="Email (optional)">
+              <input
+                type="email"
+                value={soloEmail}
+                onChange={(event) => setSoloEmail(event.target.value)}
+                className="input-control bg-slate-950/60"
+              />
+            </FormField>
+            <FormField label="Current Rank (optional)">
+              <select
+                value={soloPlayer.currentRank ?? ""}
+                onChange={(event) =>
+                  setSoloPlayer((current) => ({
+                    ...current,
+                    currentRank: event.target.value
+                      ? (event.target.value as PlayerRank)
+                      : undefined,
+                  }))
+                }
+                className="select-control bg-slate-950/60"
+              >
+                <option value="">Not specified</option>
+                {RANK_OPTIONS.map((rank) => (
+                  <option key={rank.value} value={rank.value}>
+                    {rank.label}
+                  </option>
+                ))}
+              </select>
+            </FormField>
+            <FormField label="Peak Rank (optional)">
+              <select
+                value={soloPlayer.peakRank ?? ""}
+                onChange={(event) =>
+                  setSoloPlayer((current) => ({
+                    ...current,
+                    peakRank: event.target.value
+                      ? (event.target.value as PlayerRank)
+                      : undefined,
+                  }))
+                }
+                className="select-control bg-slate-950/60"
+              >
+                <option value="">Not specified</option>
+                {RANK_OPTIONS.map((rank) => (
+                  <option key={rank.value} value={rank.value}>
+                    {rank.label}
+                  </option>
+                ))}
+              </select>
+            </FormField>
+          </div>
+        </RegistrationFormSection>
+
+        <ValidationIssueList issues={soloValidationMessages} />
+
+        <div className="registration-form-action-bar">
+          <div className="registration-form-action-copy">
+            <p className="text-sm font-semibold text-soft">Ready to enter the solo queue?</p>
+            <p className="text-xs text-muted">
+              Submission routes to /api/register/solo with existing validation rules.
+            </p>
+          </div>
+          <button
+            type="submit"
+            disabled={soloSubmitting || !soloValidation.success}
+            className="btn-base btn-primary w-full md:min-w-56 md:w-auto"
           >
-            {ROLE_OPTIONS.map((role) => (
-              <option key={role.value} value={role.value}>
-                {role.label}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="block text-sm font-medium">
-          Email (optional)
-          <input
-            type="email"
-            value={soloEmail}
-            onChange={(event) => setSoloEmail(event.target.value)}
-            className="mt-1 w-full rounded-md border border-zinc-300 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-950"
-          />
-        </label>
-        <label className="block text-sm font-medium">
-          Current Rank (optional)
-          <select
-            value={soloPlayer.currentRank ?? ""}
-            onChange={(event) =>
-              setSoloPlayer((current) => ({
-                ...current,
-                currentRank: event.target.value
-                  ? (event.target.value as PlayerRank)
-                  : undefined,
-              }))
-            }
-            className="mt-1 w-full rounded-md border border-zinc-300 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-950"
-          >
-            <option value="">Not specified</option>
-            {RANK_OPTIONS.map((rank) => (
-              <option key={rank.value} value={rank.value}>
-                {rank.label}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="block text-sm font-medium">
-          Peak Rank (optional)
-          <select
-            value={soloPlayer.peakRank ?? ""}
-            onChange={(event) =>
-              setSoloPlayer((current) => ({
-                ...current,
-                peakRank: event.target.value
-                  ? (event.target.value as PlayerRank)
-                  : undefined,
-              }))
-            }
-            className="mt-1 w-full rounded-md border border-zinc-300 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-950"
-          >
-            <option value="">Not specified</option>
-            {RANK_OPTIONS.map((rank) => (
-              <option key={rank.value} value={rank.value}>
-                {rank.label}
-              </option>
-            ))}
-          </select>
-        </label>
-        <div className="rounded-md border border-zinc-200 p-3 text-sm dark:border-zinc-700">
-          <p>
-            Event ID: <span className="font-mono">{eventId || "(missing in URL)"}</span>
-          </p>
-          <p className="mt-1 text-zinc-500">
-            Source: <code>?eventId=...&amp;token=...</code>
-          </p>
-          <p className="mt-1">
-            Token:{" "}
-            <span className="font-mono">
-              {registrationToken || "(not provided in URL)"}
-            </span>
-          </p>
+            {soloButtonText}
+          </button>
         </div>
-      </div>
 
-      {soloValidationMessages.length > 0 ? (
-        <ul className="mt-5 space-y-1 text-sm text-red-600">
-          {soloValidationMessages.map((message) => (
-            <li key={message}>• {message}</li>
-          ))}
-        </ul>
-      ) : null}
-
-      <button
-        type="submit"
-        disabled={soloSubmitting || !soloValidation.success}
-        className="mt-5 rounded-md bg-zinc-900 px-4 py-2 text-sm text-white disabled:cursor-not-allowed disabled:opacity-70 dark:bg-zinc-100 dark:text-zinc-900"
-      >
-        {soloButtonText}
-      </button>
-
-      {soloMessage ? (
-        <p
-          className={`mt-4 text-sm ${
-            soloMessage.tone === "success" ? "text-emerald-600" : "text-red-600"
-          }`}
-        >
-          {soloMessage.text}
-        </p>
-      ) : null}
-    </form>
+        {soloMessage ? (
+          <StatusMessage
+            tone={soloMessage.tone === "success" ? "success" : "danger"}
+            className="mt-1"
+          >
+            {soloMessage.text}
+          </StatusMessage>
+        ) : null}
+      </form>
+    </SurfacePanel>
   );
 }

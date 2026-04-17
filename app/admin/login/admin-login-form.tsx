@@ -75,12 +75,9 @@ export function AdminLoginForm() {
   }
 
   return (
-    <form
-      onSubmit={(event) => void onSubmit(event)}
-      className="space-y-4 rounded-xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-900"
-    >
+    <form onSubmit={(event) => void onSubmit(event)} className="space-y-4">
       <div className="space-y-2">
-        <label htmlFor="admin-email" className="text-sm font-medium">
+        <label htmlFor="admin-email" className="field-label">
           Email
         </label>
         <input
@@ -90,12 +87,12 @@ export function AdminLoginForm() {
           value={email}
           onChange={(event) => setEmail(event.target.value)}
           required
-          className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-950"
+          className="input-control"
         />
       </div>
 
       <div className="space-y-2">
-        <label htmlFor="admin-password" className="text-sm font-medium">
+        <label htmlFor="admin-password" className="field-label">
           Password
         </label>
         <input
@@ -105,19 +102,24 @@ export function AdminLoginForm() {
           value={password}
           onChange={(event) => setPassword(event.target.value)}
           required
-          className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-950"
+          className="input-control"
         />
       </div>
 
-      {errorMessage ? <p className="text-sm text-red-600">{errorMessage}</p> : null}
+      {errorMessage ? <p className="text-danger text-sm">{errorMessage}</p> : null}
 
       <button
         type="submit"
         disabled={isSubmitting}
-        className="w-full rounded-md bg-zinc-900 px-3 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-70 dark:bg-zinc-100 dark:text-zinc-900"
+        className="btn-base btn-primary w-full"
       >
         {isSubmitting ? "Signing in..." : "Sign in"}
       </button>
+
+      <p className="text-xs text-muted">
+        After successful login, you will be routed to TOTP setup or challenge before
+        dashboard access.
+      </p>
     </form>
   );
 }

@@ -62,6 +62,46 @@ export type SoloRegistrationInput = {
   peakRank?: PlayerRank;
 };
 
+export type SoloPlayerStatus = "available" | "assigned";
+
+export type SoloPlayerPoolRecord = {
+  id: string;
+  name: string;
+  riotId: string;
+  discordId: string;
+  preferredRole: PlayerRole;
+  eventId: string;
+  status: SoloPlayerStatus;
+  email?: string;
+  currentRank?: PlayerRank;
+  peakRank?: PlayerRank;
+};
+
+export type UnderfilledTeamRecord = {
+  id: string;
+  teamName: string;
+  captainDiscordId: string;
+  eventId: string;
+  playerCount: number;
+  slotsRemaining: number;
+};
+
+export type RandomTeamCreationSummary = {
+  operationId: string;
+  eventId: string;
+  teamSize: number;
+  selectedCount: number;
+  createdTeamCount: number;
+  createdTeamIds: string[];
+};
+
+export type SoloPlayerAssignmentSummary = {
+  eventId: string;
+  teamId: string;
+  assignedCount: number;
+  resultingPlayerCount: number;
+};
+
 type RegistrationBase = {
   id: string;
   status: RegistrationStatus;

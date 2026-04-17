@@ -165,7 +165,7 @@ export function DashboardClient() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-xl font-semibold">Pending Registrations</h2>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
             onClick={() => void refreshRegistrations()}
@@ -215,7 +215,7 @@ export function DashboardClient() {
             >
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <p className="text-sm text-zinc-500">
-                  ID: <span className="font-mono">{registration.id}</span>
+                  ID: <span className="font-mono break-all">{registration.id}</span>
                 </p>
                 <p className="text-sm font-medium uppercase tracking-wide text-zinc-500">
                   {registration.type}
@@ -230,12 +230,12 @@ export function DashboardClient() {
                 <p className="text-sm text-zinc-600 dark:text-zinc-300">
                   Event: {registration.eventId}
                 </p>
-                <p className="text-sm text-zinc-600 dark:text-zinc-300">
+                <p className="break-all text-sm text-zinc-600 dark:text-zinc-300">
                   Players: {registration.players.map((player) => player.riotId).join(", ")}
                 </p>
               </div>
 
-              <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_auto_auto]">
+              <div className="mt-4 grid gap-3 md:grid-cols-[minmax(0,1fr)_auto_auto]">
                 <input
                   value={rejectReason}
                   onChange={(event) =>
