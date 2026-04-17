@@ -1,5 +1,18 @@
 export type RegistrationType = "team" | "solo";
 export type RegistrationStatus = "pending" | "approved" | "rejected";
+export type EventStatus =
+  | "draft"
+  | "registration_open"
+  | "registration_closed"
+  | "in_progress"
+  | "completed"
+  | "archived";
+export type MatchStatus =
+  | "scheduled"
+  | "in_progress"
+  | "completed"
+  | "forfeit"
+  | "cancelled";
 
 export type PlayerRole =
   | "duelist"
@@ -31,6 +44,7 @@ export type TeamRegistrationInput = {
   captainDiscordId: string;
   players: TeamPlayerInput[];
   eventId: string;
+  registrationToken?: string;
   email?: string;
   teamLogoUrl?: string;
   teamTag?: string;
@@ -42,6 +56,7 @@ export type SoloRegistrationInput = {
   discordId: string;
   preferredRole: PlayerRole;
   eventId: string;
+  registrationToken?: string;
   email?: string;
   currentRank?: PlayerRank;
   peakRank?: PlayerRank;
@@ -72,3 +87,86 @@ export type SoloRegistrationRecord = RegistrationBase & {
 };
 
 export type RegistrationRecord = TeamRegistrationRecord;
+
+export type EventRegistrationLinkMeta = Record<
+  string,
+  string | number | boolean | null
+>;
+
+export type EventRecord = {
+  id: string;
+  name: string;
+  slug: string;
+  code: string;
+  status: EventStatus;
+  startsAt: string;
+  endsAt: string;
+  registrationOpensAt: string;
+  registrationClosesAt: string;
+  registrationLinkToken?: string;
+  registrationLinkMeta?: EventRegistrationLinkMeta;
+  createdAt: string | null;
+  updatedAt: string | null;
+};
+
+export type MatchRecord = {
+  id: string;
+  eventId: string;
+  homeTeamId: string;
+  awayTeamId: string;
+  playedAt: string;
+  status: MatchStatus;
+  homeScore: number;
+  awayScore: number;
+  homeRoundDiff: number;
+  awayRoundDiff: number;
+};
+
+export type TeamStandingAggregate = {
+  eventId: string;
+  teamId: string;
+  teamName: string;
+  wins: number;
+  losses: number;
+  matchesPlayed: number;
+  roundDiff: number;
+  points?: number;
+};
+
+export type PlayerStatAggregate = {
+  eventId: string;
+  playerId: string;
+  teamId: string;
+  matchId?: string;
+  mapRef?: string;
+  kills: number;
+  deaths: number;
+  assists: number;
+  matchesPlayed: number;
+  mapsPlayed: number;
+};
+
+export type PlayerStatRecord = PlayerStatAggregate & {
+  id: string;
+};
+
+export type MvpCandidate = {
+  eventId: string;
+  playerId: string;
+  teamId: string;
+  kills: number;
+  deaths: number;
+  assists: number;
+  matchesPlayed: number;
+  roundDiff: number;
+  points?: number;
+  score: number;
+  rank: number;
+};
+
+export type MvpSummary = {
+  eventId: string;
+  generatedAt: string;
+  topCandidate?: MvpCandidate;
+  candidates: MvpCandidate[];
+};

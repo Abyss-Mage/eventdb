@@ -10,7 +10,8 @@ export default function RegisterPage() {
         <p className="mt-2 text-zinc-600 dark:text-zinc-300">
           Choose team or solo registration to continue. Team entries are reviewed by
           admins, and solo entries are added to the free-agent pool. Include{" "}
-          <code>?eventId=...</code> in the URL.
+          <code>?eventId=...</code> in the URL, plus <code>&amp;token=...</code> when
+          using a protected event registration link.
         </p>
       </header>
       <Suspense fallback={<p className="text-sm text-zinc-500">Loading form...</p>}>

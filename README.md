@@ -5,6 +5,8 @@ Phase 1 foundation for the esports management platform:
 - Team registration API and UI
 - Solo (free-agent) registration API and UI
 - Admin approval/rejection API and dashboard UI
+- Admin email/password login with Appwrite session cookie auth
+- Admin sidebar navigation with sectioned dashboard pages
 - Appwrite server-side write boundary
 
 ## Prerequisites
@@ -22,13 +24,32 @@ Required server configuration:
 - `APPWRITE_ENDPOINT`
 - `APPWRITE_PROJECT_ID`
 - `APPWRITE_API_KEY`
+- `APPWRITE_ADMIN_TEAM_ID` (Appwrite team ID allowed to access admin surfaces; supports comma-separated values. `APPWRITE_ADMIN_TEAM_IDS` is also supported.)
 - `APPWRITE_DATABASE_ID`
 - `APPWRITE_REGISTRATIONS_COLLECTION_ID`
 - `APPWRITE_TEAMS_COLLECTION_ID`
 - `APPWRITE_PLAYERS_COLLECTION_ID`
 - `APPWRITE_FREE_AGENTS_COLLECTION_ID`
+- `APPWRITE_EVENTS_COLLECTION_ID` (optional, defaults to `events`)
+- `APPWRITE_MATCHES_COLLECTION_ID` (optional, defaults to `matches`)
+- `APPWRITE_TEAM_STATS_COLLECTION_ID` (optional, defaults to `team_stats`)
+- `APPWRITE_PLAYER_STATS_COLLECTION_ID` (optional, defaults to `player_stats`)
+- `APPWRITE_MVP_COLLECTION_ID` (optional, defaults to `mvp`)
+- `APPWRITE_ADMIN_AUDIT_LOGS_COLLECTION_ID` (optional, defaults to `admin_audit_logs`)
+- `RIOT_API_KEY` (required for Riot sync endpoints)
+- `RIOT_PLATFORM_REGION` (optional, defaults to `ap`)
+- `RIOT_ROUTING_REGION` (optional, defaults to `americas`)
+- `RIOT_REQUEST_TIMEOUT_MS` (optional, defaults to `10000`)
+- `RIOT_MAX_RETRIES` (optional, defaults to `3`)
+- `RIOT_INITIAL_BACKOFF_MS` (optional, defaults to `500`)
 
-## Appwrite Data Model (Phase 1)
+## Riot Verification File
+
+- Production verification URL: `https://eventdb.abyssmage.fun/riot.txt`
+- Keep the token file at `public/riot.txt` so Next.js serves it at `/riot.txt`.
+- Keep a matching `riot.txt` at the repository root as well.
+
+## Appwrite Data Model (Phase 1 + Phase 2)
 
 Create tables in the configured database:
 
@@ -36,6 +57,12 @@ Create tables in the configured database:
 2. `teams`
 3. `players`
 4. `free_agents`
+5. `events`
+6. `matches`
+7. `team_stats`
+8. `player_stats`
+9. `mvp`
+10. `admin_audit_logs`
 
 ### `registrations` (team submissions, pending approval)
 
@@ -68,6 +95,29 @@ Create tables in the configured database:
 ### Query/index recommendation
 
 - Index `registrations.status` for admin dashboard queries.
+- Indexes are also provisioned for event slugs/codes, match event+time lookups,
+  standings per event/team, player stat event+player lookups, MVP rankings,
+  and admin audit lookups by occurred time / action / status.
+
+## Phase 2 Event Domain Resources
+
+- `events`: event metadata, lifecycle status, start/end and registration windows,
+  plus optional registration link token/meta.
+- `matches`: event-linked fixtures/results with home/away teams, played time, score,
+  and round differential fields.
+- `team_stats`: event standings aggregate (wins/losses/matches played/round diff,
+  optional points).
+- `player_stats`: event player aggregates (kills/deaths/assists) with match/map refs.
+- `mvp`: MVP candidate summaries and ranked scoring snapshots per event.
+
+## Admin Audit Logs
+
+- `admin_audit_logs`: server-written audit trail for sensitive admin operations.
+- Fields: `actorUserId`, optional `actorEmail`, `action`, `resourceType`,
+  optional `resourceId`, optional `eventId`, optional `detailsJson`, `status`,
+  and `occurredAt`.
+- `detailsJson` is sanitized to avoid secrets (passwords, OTP values, tokens,
+  API keys, and recovery codes).
 
 ## Run
 
@@ -87,6 +137,16 @@ Open `http://localhost:3000`.
 Use `eventId` in the register URL:
 
 - `http://localhost:3000/register?eventId=<your-event-id>`
+- Protected event links include a token:
+  - `http://localhost:3000/register?eventId=<your-event-id>&token=<registration-token>`
+
+Registration behavior:
+
+- Registrations are accepted only when the event exists, has status `registration_open`,
+  and current time is within the event registration window.
+- If an event has a `registrationLinkToken`, team/solo registration must include a matching
+  `token` from the registration link.
+- Admins can generate/regenerate event registration links from `/dashboard/events`.
 
 ## Implemented API Endpoints
 
@@ -95,8 +155,87 @@ Use `eventId` in the register URL:
 - `GET /api/admin/registrations?status=pending|approved|rejected`
 - `POST /api/admin/approve`
 - `POST /api/admin/reject`
+- `GET /api/admin/events?status=<event-status>&limit=<1-100>`
+- `POST /api/admin/events`
+- `PATCH /api/admin/events/update`
+- `POST /api/admin/events/publish`
+- `POST /api/admin/events/archive`
+- `GET /api/admin/matches?eventId=<event-id>&status=<match-status>&limit=<1-100>`
+- `POST /api/admin/matches`
+- `PATCH /api/admin/matches/update`
+- `GET /api/admin/leaderboard?eventId=<event-id>&limit=<1-100>&sortBy=wins|roundDiff|points`
+- `POST /api/admin/leaderboard/recompute`
+- `GET /api/admin/player-stats?eventId=<event-id>&teamId=<team-id>&playerId=<player-id>&limit=<1-100>`
+- `POST /api/admin/player-stats`
+- `PATCH /api/admin/player-stats/update`
+- `GET /api/admin/mvp?eventId=<event-id>`
+- `POST /api/admin/mvp/recompute`
+- `GET /api/admin/riot/config`
+- `POST /api/admin/riot/sync`
+- `POST /api/admin/auth/login`
+- `POST /api/admin/auth/logout`
+- `GET /api/admin/auth/session`
+- `GET /api/admin/auth/me`
+- `POST /api/admin/auth/mfa/enroll`
+- `POST /api/admin/auth/mfa/enroll/verify`
+- `POST /api/admin/auth/mfa/challenge`
+- `POST /api/admin/auth/mfa/verify`
+- `GET /api/admin/auth/mfa/recovery-codes`
+
+Admin dashboard routes:
+
+- `/admin/2fa` (required when TOTP setup or challenge is pending)
+- `/dashboard`
+- `/dashboard/registrations`
+- `/dashboard/events`
+- `/dashboard/matches`
+- `/dashboard/leaderboard`
+- `/dashboard/player-stats`
+- `/dashboard/mvp`
+- `/dashboard/riot-sync`
+- `/dashboard/past-events` (read-only historical metadata + outcomes)
+- `/dashboard/settings`
+- All `/dashboard/*` routes share the same guard behavior: authenticated admin session + admin team membership + completed TOTP 2FA (otherwise redirect to `/admin/login`).
 
 All API responses follow:
 
 - Success: `{ "success": true, "data": ... }`
 - Error: `{ "success": false, "error": "message" }`
+
+Leaderboard notes:
+
+- Standings are persisted in `team_stats` and can be manually recomputed per event.
+- Admin match create/update endpoints trigger standings recomputation automatically.
+
+Player stats notes:
+
+- Player stats are persisted in `player_stats` and can be created/edited from `/dashboard/events`.
+- Admin player-stats API supports event-scoped listing with optional `teamId`/`playerId` filters.
+- Manual stats entry/edit remains available as a fallback even when Riot sync is unconfigured or fails.
+
+MVP notes:
+
+- MVP summaries are persisted in `mvp` and returned by `GET /api/admin/mvp`.
+- Recompute with `POST /api/admin/mvp/recompute` and body `{ "eventId": "<event-id>" }`.
+- Deterministic score formula:
+  - `score = (2 * kills) + (1.5 * assists) - (1.25 * deaths) + (3 * matchesPlayed) + (0.5 * roundDiff) + (0.75 * points)`
+- Deterministic tie-break order:
+  - `score DESC`, then `kills DESC`, then `deaths ASC`, then `playerId ASC`.
+
+Riot sync notes:
+
+- Riot sync is admin-protected and uses bounded retries for transient Riot API failures (429/5xx).
+- If `RIOT_API_KEY` is missing, Riot sync endpoints return explicit "not configured" errors.
+- Trigger sync with:
+  - `POST /api/admin/riot/sync`
+  - Body: `{ "eventId": "<event-id>", "matchIds": ["optional-match-id"], "playerIds": ["optional-player-id"], "maxMatchesPerPlayer": 5 }`
+- Check config state with:
+  - `GET /api/admin/riot/config`
+
+Admin audit notes:
+
+- Logged actions include admin login/logout, MFA enroll/challenge/verify flows,
+  event create/update/publish/archive, match create/update, leaderboard
+  recompute, player stat create/update, Riot sync trigger/results, MVP recompute,
+  and registration approve/reject.
+- Success/failure outcomes are recorded with concise operational context.

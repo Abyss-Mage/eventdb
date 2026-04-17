@@ -1,7 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 
+import { ADMIN_ROUTES } from "@/app/admin/admin-routes";
+import {
+  applyAdminGuardRedirect,
+  applyAdminGuardStatusRedirect,
+  throwAdminGuardError,
+} from "@/app/dashboard/admin-client-auth";
 import type { RegistrationRecord } from "@/lib/domain/types";
 
 type RegistrationsResponse =
@@ -20,9 +27,14 @@ type ActionResponse =
   | { success: true; data: { registrationId: string; status: "approved" | "rejected" } }
   | { success: false; error: string };
 
+type LogoutResponse = { success: true; data: { loggedOut: true } } | { success: false; error: string };
+
 export function DashboardClient() {
+  const router = useRouter();
+
   const [registrations, setRegistrations] = useState<RegistrationRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [actionPendingFor, setActionPendingFor] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [rejectReasonById, setRejectReasonById] = useState<Record<string, string>>({});
@@ -36,6 +48,7 @@ export function DashboardClient() {
     const body = (await response.json()) as RegistrationsResponse;
 
     if (!body.success) {
+      throwAdminGuardError(response.status, body.error);
       throw new Error(body.error);
     }
 
@@ -50,6 +63,10 @@ export function DashboardClient() {
       const nextRegistrations = await fetchPendingRegistrations();
       setRegistrations(nextRegistrations);
     } catch (error) {
+      if (applyAdminGuardRedirect(router, error)) {
+        return;
+      }
+
       if (error instanceof Error && error.message) {
         setErrorMessage(error.message);
       } else {
@@ -58,7 +75,7 @@ export function DashboardClient() {
     } finally {
       setIsLoading(false);
     }
-  }, [fetchPendingRegistrations]);
+  }, [fetchPendingRegistrations, router]);
 
   useEffect(() => {
     const run = async () => {
@@ -66,6 +83,10 @@ export function DashboardClient() {
         const nextRegistrations = await fetchPendingRegistrations();
         setRegistrations(nextRegistrations);
       } catch (error) {
+        if (applyAdminGuardRedirect(router, error)) {
+          return;
+        }
+
         if (error instanceof Error && error.message) {
           setErrorMessage(error.message);
         } else {
@@ -77,7 +98,7 @@ export function DashboardClient() {
     };
 
     void run();
-  }, [fetchPendingRegistrations]);
+  }, [fetchPendingRegistrations, router]);
 
   async function runAdminAction(
     endpoint: "/api/admin/approve" | "/api/admin/reject",
@@ -100,6 +121,10 @@ export function DashboardClient() {
 
       const body = (await response.json()) as ActionResponse;
       if (!body.success) {
+        if (applyAdminGuardStatusRedirect(router, response.status, body.error)) {
+          return;
+        }
+
         setErrorMessage(body.error);
         return;
       }
@@ -114,22 +139,63 @@ export function DashboardClient() {
     }
   }
 
+  async function logout() {
+    setIsLoggingOut(true);
+    setErrorMessage(null);
+
+    try {
+      const response = await fetch("/api/admin/auth/logout", { method: "POST" });
+      const body = (await response.json()) as LogoutResponse;
+
+      if (!body.success) {
+        setErrorMessage(body.error);
+        return;
+      }
+
+      router.push(ADMIN_ROUTES.login);
+      router.refresh();
+    } catch {
+      setErrorMessage("Unable to logout right now.");
+    } finally {
+      setIsLoggingOut(false);
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 className="text-2xl font-semibold">Pending Registrations</h2>
-        <button
-          type="button"
-          onClick={() => void refreshRegistrations()}
-          className="rounded-md border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-700"
-        >
-          Refresh
-        </button>
+        <h2 className="text-xl font-semibold">Pending Registrations</h2>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => void refreshRegistrations()}
+            disabled={isLoading}
+            className="rounded-md border border-zinc-300 px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-70 dark:border-zinc-700"
+          >
+            {isLoading ? "Refreshing..." : "Refresh"}
+          </button>
+          <button
+            type="button"
+            disabled={isLoggingOut}
+            onClick={() => void logout()}
+            className="rounded-md border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-700"
+          >
+            {isLoggingOut ? "Logging out..." : "Log out"}
+          </button>
+        </div>
       </div>
 
-      {errorMessage ? <p className="text-sm text-red-600">{errorMessage}</p> : null}
+      {errorMessage ? (
+        <p className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300">
+          {errorMessage}
+        </p>
+      ) : null}
 
-      {isLoading ? <p className="text-sm text-zinc-500">Loading registrations...</p> : null}
+      {isLoading ? (
+        <p className="rounded-md border border-zinc-200 bg-zinc-50 p-3 text-sm text-zinc-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300">
+          Loading registrations...
+        </p>
+      ) : null}
 
       {!isLoading && registrations.length === 0 ? (
         <p className="rounded-md border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300">

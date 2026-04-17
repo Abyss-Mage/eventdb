@@ -6,7 +6,7 @@ import { getAppwriteServerEnv } from "@/lib/appwrite/env";
 
 let cachedClient: Client | null = null;
 
-function getAppwriteClient(): Client {
+export function getAppwriteServerClient(): Client {
   if (cachedClient) {
     return cachedClient;
   }
@@ -21,7 +21,7 @@ function getAppwriteClient(): Client {
 }
 
 export function getAppwriteDatabases(): Databases {
-  return new Databases(getAppwriteClient());
+  return new Databases(getAppwriteServerClient());
 }
 
 export function getAppwriteCollections() {
@@ -33,5 +33,11 @@ export function getAppwriteCollections() {
     teamsCollectionId: env.APPWRITE_TEAMS_COLLECTION_ID,
     playersCollectionId: env.APPWRITE_PLAYERS_COLLECTION_ID,
     freeAgentsCollectionId: env.APPWRITE_FREE_AGENTS_COLLECTION_ID,
+    eventsCollectionId: env.APPWRITE_EVENTS_COLLECTION_ID,
+    matchesCollectionId: env.APPWRITE_MATCHES_COLLECTION_ID,
+    teamStatsCollectionId: env.APPWRITE_TEAM_STATS_COLLECTION_ID,
+    playerStatsCollectionId: env.APPWRITE_PLAYER_STATS_COLLECTION_ID,
+    mvpCollectionId: env.APPWRITE_MVP_COLLECTION_ID,
+    adminAuditLogsCollectionId: env.APPWRITE_ADMIN_AUDIT_LOGS_COLLECTION_ID,
   };
 }

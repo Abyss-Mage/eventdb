@@ -1,3 +1,7 @@
+import Link from "next/link";
+
+import { DASHBOARD_ROUTES } from "@/app/admin/admin-routes";
+
 export default function Home() {
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-1 flex-col px-6 py-14">
@@ -16,7 +20,7 @@ export default function Home() {
         </section>
 
         <section className="grid gap-4 sm:grid-cols-2">
-          <a
+          <Link
             href="/register"
             className="rounded-xl border border-zinc-200 bg-white p-6 shadow-sm transition hover:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-500"
           >
@@ -24,16 +28,16 @@ export default function Home() {
             <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-300">
               Submit team and solo entries with strict validation and pending status.
             </p>
-          </a>
-          <a
-            href="/dashboard"
+          </Link>
+          <Link
+            href={DASHBOARD_ROUTES.overview}
             className="rounded-xl border border-zinc-200 bg-white p-6 shadow-sm transition hover:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-500"
           >
             <h2 className="text-xl font-semibold">Admin Dashboard</h2>
             <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-300">
               Review pending registrations and approve or reject submissions.
             </p>
-          </a>
+          </Link>
         </section>
       </main>
     </div>

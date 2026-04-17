@@ -67,6 +67,7 @@ function formatValidationIssues(issues: { message: string }[]) {
 export function RegisterForms() {
   const searchParams = useSearchParams();
   const eventId = (searchParams.get("eventId") ?? "").trim();
+  const registrationToken = (searchParams.get("token") ?? "").trim();
 
   const [mode, setMode] = useState<RegistrationMode>("chooser");
 
@@ -106,11 +107,21 @@ export function RegisterForms() {
         role: player.role,
       })),
       eventId,
+      registrationToken: normalizedOptional(registrationToken),
       email: normalizedOptional(teamEmail),
       teamLogoUrl: normalizedOptional(teamLogoUrl),
       teamTag: normalizedOptional(teamTag),
     }),
-    [captainDiscordId, eventId, players, teamEmail, teamLogoUrl, teamName, teamTag],
+    [
+      captainDiscordId,
+      eventId,
+      players,
+      registrationToken,
+      teamEmail,
+      teamLogoUrl,
+      teamName,
+      teamTag,
+    ],
   );
   const teamValidation = useMemo(
     () => teamRegistrationSchema.safeParse(teamPayloadCandidate),
@@ -131,11 +142,12 @@ export function RegisterForms() {
       discordId: soloPlayer.discordId.trim(),
       preferredRole: soloPlayer.preferredRole,
       eventId,
+      registrationToken: normalizedOptional(registrationToken),
       email: normalizedOptional(soloEmail),
       currentRank: soloPlayer.currentRank,
       peakRank: soloPlayer.peakRank,
     }),
-    [eventId, soloEmail, soloPlayer],
+    [eventId, registrationToken, soloEmail, soloPlayer],
   );
   const soloValidation = useMemo(
     () => soloRegistrationSchema.safeParse(soloPayloadCandidate),
@@ -393,7 +405,13 @@ export function RegisterForms() {
                 <span className="font-mono">{eventId || "(missing in URL)"}</span>
               </p>
               <p className="mt-1 text-zinc-500">
-                Source: <code>?eventId=...</code>
+                Source: <code>?eventId=...&amp;token=...</code>
+              </p>
+              <p className="mt-1">
+                Token:{" "}
+                <span className="font-mono">
+                  {registrationToken || "(not provided in URL)"}
+                </span>
               </p>
             </div>
           </div>
@@ -648,7 +666,13 @@ export function RegisterForms() {
             Event ID: <span className="font-mono">{eventId || "(missing in URL)"}</span>
           </p>
           <p className="mt-1 text-zinc-500">
-            Source: <code>?eventId=...</code>
+            Source: <code>?eventId=...&amp;token=...</code>
+          </p>
+          <p className="mt-1">
+            Token:{" "}
+            <span className="font-mono">
+              {registrationToken || "(not provided in URL)"}
+            </span>
           </p>
         </div>
       </div>

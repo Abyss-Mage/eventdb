@@ -11,12 +11,14 @@ import {
 import { getAppwriteCollections, getAppwriteDatabases } from "@/lib/appwrite/server";
 import { HttpError } from "@/lib/errors/http-error";
 import type {
+  EventRecord,
   RegistrationRecord,
   RegistrationStatus,
   SoloRegistrationInput,
   TeamPlayerInput,
   TeamRegistrationInput,
 } from "@/lib/domain/types";
+import { getEventById } from "@/services/event-domain";
 
 type RegistrationDocument = Models.Document & {
   type: "team" | "solo";
@@ -175,6 +177,49 @@ function parsePlayers(data: RegistrationDocument): TeamPlayerInput[] {
   throw new HttpError("Registration document has invalid player data.", 500);
 }
 
+function normalizeToken(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : undefined;
+}
+
+function isRegistrationWindowOpen(event: EventRecord, currentTime: number): boolean {
+  const opensAt = Date.parse(event.registrationOpensAt);
+  const closesAt = Date.parse(event.registrationClosesAt);
+
+  if (Number.isNaN(opensAt) || Number.isNaN(closesAt)) {
+    throw new HttpError("Event registration window is misconfigured.", 500);
+  }
+
+  return currentTime >= opensAt && currentTime <= closesAt;
+}
+
+async function ensureRegistrationAllowed(
+  eventId: string,
+  registrationToken?: string,
+): Promise<void> {
+  const event = await getEventById(eventId);
+  if (!event) {
+    throw new HttpError("Event not found.", 404);
+  }
+
+  if (event.status !== "registration_open") {
+    throw new HttpError("Registration is not open for this event right now.", 409);
+  }
+
+  if (!isRegistrationWindowOpen(event, Date.now())) {
+    throw new HttpError("Registration is closed for this event at the moment.", 409);
+  }
+
+  const configuredToken = normalizeToken(event.registrationLinkToken);
+  if (!configuredToken) {
+    return;
+  }
+
+  if (normalizeToken(registrationToken) !== configuredToken) {
+    throw new HttpError("This registration link is invalid for the selected event.", 403);
+  }
+}
+
 export async function createTeamRegistration(
   payload: TeamRegistrationInput,
 ): Promise<string> {
@@ -182,6 +227,8 @@ export async function createTeamRegistration(
   const { databaseId, registrationsCollectionId } = getAppwriteCollections();
 
   try {
+    await ensureRegistrationAllowed(payload.eventId, payload.registrationToken);
+
     const document = await databases.createDocument(
       databaseId,
       registrationsCollectionId,
@@ -212,6 +259,8 @@ export async function createSoloRegistration(
   const { databaseId, freeAgentsCollectionId } = getAppwriteCollections();
 
   try {
+    await ensureRegistrationAllowed(payload.eventId, payload.registrationToken);
+
     const document = await databases.createDocument(
       databaseId,
       freeAgentsCollectionId,

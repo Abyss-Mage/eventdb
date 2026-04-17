@@ -51,6 +51,16 @@ function requireEnv(name) {
   return value.trim();
 }
 
+function envWithDefault(name, fallback) {
+  const value = process.env[name];
+  if (!value) {
+    return fallback;
+  }
+
+  const normalized = value.trim();
+  return normalized.length > 0 ? normalized : fallback;
+}
+
 function isNotFound(error) {
   return error instanceof AppwriteException && error.code === 404;
 }
@@ -223,6 +233,21 @@ async function main() {
   const teamsCollectionId = requireEnv("APPWRITE_TEAMS_COLLECTION_ID");
   const playersCollectionId = requireEnv("APPWRITE_PLAYERS_COLLECTION_ID");
   const freeAgentsCollectionId = requireEnv("APPWRITE_FREE_AGENTS_COLLECTION_ID");
+  const eventsCollectionId = envWithDefault("APPWRITE_EVENTS_COLLECTION_ID", "events");
+  const matchesCollectionId = envWithDefault("APPWRITE_MATCHES_COLLECTION_ID", "matches");
+  const teamStatsCollectionId = envWithDefault(
+    "APPWRITE_TEAM_STATS_COLLECTION_ID",
+    "team_stats",
+  );
+  const playerStatsCollectionId = envWithDefault(
+    "APPWRITE_PLAYER_STATS_COLLECTION_ID",
+    "player_stats",
+  );
+  const mvpCollectionId = envWithDefault("APPWRITE_MVP_COLLECTION_ID", "mvp");
+  const adminAuditLogsCollectionId = envWithDefault(
+    "APPWRITE_ADMIN_AUDIT_LOGS_COLLECTION_ID",
+    "admin_audit_logs",
+  );
 
   const roleValues = [
     "duelist",
@@ -242,6 +267,21 @@ async function main() {
     "immortal",
     "radiant",
   ];
+  const eventStatusValues = [
+    "draft",
+    "registration_open",
+    "registration_closed",
+    "in_progress",
+    "completed",
+    "archived",
+  ];
+  const matchStatusValues = [
+    "scheduled",
+    "in_progress",
+    "completed",
+    "forfeit",
+    "cancelled",
+  ];
 
   const client = new Client()
     .setEndpoint(endpoint)
@@ -256,6 +296,17 @@ async function main() {
   await ensureCollection(databases, databaseId, teamsCollectionId, "teams");
   await ensureCollection(databases, databaseId, playersCollectionId, "players");
   await ensureCollection(databases, databaseId, freeAgentsCollectionId, "free_agents");
+  await ensureCollection(databases, databaseId, eventsCollectionId, "events");
+  await ensureCollection(databases, databaseId, matchesCollectionId, "matches");
+  await ensureCollection(databases, databaseId, teamStatsCollectionId, "team_stats");
+  await ensureCollection(databases, databaseId, playerStatsCollectionId, "player_stats");
+  await ensureCollection(databases, databaseId, mvpCollectionId, "mvp");
+  await ensureCollection(
+    databases,
+    databaseId,
+    adminAuditLogsCollectionId,
+    "admin_audit_logs",
+  );
 
   await ensureAttribute(databases, databaseId, registrationsCollectionId, "type", () =>
     databases.createEnumAttribute({
@@ -618,6 +669,608 @@ async function main() {
       }),
   );
 
+  await ensureAttribute(databases, databaseId, eventsCollectionId, "name", () =>
+    databases.createStringAttribute({
+      databaseId,
+      collectionId: eventsCollectionId,
+      key: "name",
+      size: 120,
+      required: true,
+    }),
+  );
+  await ensureAttribute(databases, databaseId, eventsCollectionId, "slug", () =>
+    databases.createStringAttribute({
+      databaseId,
+      collectionId: eventsCollectionId,
+      key: "slug",
+      size: 80,
+      required: true,
+    }),
+  );
+  await ensureAttribute(databases, databaseId, eventsCollectionId, "code", () =>
+    databases.createStringAttribute({
+      databaseId,
+      collectionId: eventsCollectionId,
+      key: "code",
+      size: 32,
+      required: true,
+    }),
+  );
+  await ensureAttribute(databases, databaseId, eventsCollectionId, "status", () =>
+    databases.createEnumAttribute({
+      databaseId,
+      collectionId: eventsCollectionId,
+      key: "status",
+      elements: eventStatusValues,
+      required: true,
+    }),
+  );
+  await ensureAttribute(databases, databaseId, eventsCollectionId, "startsAt", () =>
+    databases.createDatetimeAttribute({
+      databaseId,
+      collectionId: eventsCollectionId,
+      key: "startsAt",
+      required: true,
+    }),
+  );
+  await ensureAttribute(databases, databaseId, eventsCollectionId, "endsAt", () =>
+    databases.createDatetimeAttribute({
+      databaseId,
+      collectionId: eventsCollectionId,
+      key: "endsAt",
+      required: true,
+    }),
+  );
+  await ensureAttribute(
+    databases,
+    databaseId,
+    eventsCollectionId,
+    "registrationOpensAt",
+    () =>
+      databases.createDatetimeAttribute({
+        databaseId,
+        collectionId: eventsCollectionId,
+        key: "registrationOpensAt",
+        required: true,
+      }),
+  );
+  await ensureAttribute(
+    databases,
+    databaseId,
+    eventsCollectionId,
+    "registrationClosesAt",
+    () =>
+      databases.createDatetimeAttribute({
+        databaseId,
+        collectionId: eventsCollectionId,
+        key: "registrationClosesAt",
+        required: true,
+      }),
+  );
+  await ensureAttribute(
+    databases,
+    databaseId,
+    eventsCollectionId,
+    "registrationLinkToken",
+    () =>
+      databases.createStringAttribute({
+        databaseId,
+        collectionId: eventsCollectionId,
+        key: "registrationLinkToken",
+        size: 120,
+        required: false,
+      }),
+  );
+  await ensureAttribute(
+    databases,
+    databaseId,
+    eventsCollectionId,
+    "registrationLinkMeta",
+    () =>
+      databases.createLongtextAttribute({
+        databaseId,
+        collectionId: eventsCollectionId,
+        key: "registrationLinkMeta",
+        required: false,
+      }),
+  );
+
+  await ensureAttribute(databases, databaseId, matchesCollectionId, "eventId", () =>
+    databases.createStringAttribute({
+      databaseId,
+      collectionId: matchesCollectionId,
+      key: "eventId",
+      size: 64,
+      required: true,
+    }),
+  );
+  await ensureAttribute(databases, databaseId, matchesCollectionId, "homeTeamId", () =>
+    databases.createStringAttribute({
+      databaseId,
+      collectionId: matchesCollectionId,
+      key: "homeTeamId",
+      size: 64,
+      required: true,
+    }),
+  );
+  await ensureAttribute(databases, databaseId, matchesCollectionId, "awayTeamId", () =>
+    databases.createStringAttribute({
+      databaseId,
+      collectionId: matchesCollectionId,
+      key: "awayTeamId",
+      size: 64,
+      required: true,
+    }),
+  );
+  await ensureAttribute(databases, databaseId, matchesCollectionId, "playedAt", () =>
+    databases.createDatetimeAttribute({
+      databaseId,
+      collectionId: matchesCollectionId,
+      key: "playedAt",
+      required: true,
+    }),
+  );
+  await ensureAttribute(databases, databaseId, matchesCollectionId, "status", () =>
+    databases.createEnumAttribute({
+      databaseId,
+      collectionId: matchesCollectionId,
+      key: "status",
+      elements: matchStatusValues,
+      required: true,
+    }),
+  );
+  await ensureAttribute(databases, databaseId, matchesCollectionId, "homeScore", () =>
+    databases.createIntegerAttribute({
+      databaseId,
+      collectionId: matchesCollectionId,
+      key: "homeScore",
+      required: true,
+      min: 0,
+    }),
+  );
+  await ensureAttribute(databases, databaseId, matchesCollectionId, "awayScore", () =>
+    databases.createIntegerAttribute({
+      databaseId,
+      collectionId: matchesCollectionId,
+      key: "awayScore",
+      required: true,
+      min: 0,
+    }),
+  );
+  await ensureAttribute(
+    databases,
+    databaseId,
+    matchesCollectionId,
+    "homeRoundDiff",
+    () =>
+      databases.createIntegerAttribute({
+        databaseId,
+        collectionId: matchesCollectionId,
+        key: "homeRoundDiff",
+        required: true,
+      }),
+  );
+  await ensureAttribute(
+    databases,
+    databaseId,
+    matchesCollectionId,
+    "awayRoundDiff",
+    () =>
+      databases.createIntegerAttribute({
+        databaseId,
+        collectionId: matchesCollectionId,
+        key: "awayRoundDiff",
+        required: true,
+      }),
+  );
+
+  await ensureAttribute(databases, databaseId, teamStatsCollectionId, "eventId", () =>
+    databases.createStringAttribute({
+      databaseId,
+      collectionId: teamStatsCollectionId,
+      key: "eventId",
+      size: 64,
+      required: true,
+    }),
+  );
+  await ensureAttribute(databases, databaseId, teamStatsCollectionId, "teamId", () =>
+    databases.createStringAttribute({
+      databaseId,
+      collectionId: teamStatsCollectionId,
+      key: "teamId",
+      size: 64,
+      required: true,
+    }),
+  );
+  await ensureAttribute(databases, databaseId, teamStatsCollectionId, "teamName", () =>
+    databases.createStringAttribute({
+      databaseId,
+      collectionId: teamStatsCollectionId,
+      key: "teamName",
+      size: 100,
+      required: true,
+    }),
+  );
+  await ensureAttribute(databases, databaseId, teamStatsCollectionId, "wins", () =>
+    databases.createIntegerAttribute({
+      databaseId,
+      collectionId: teamStatsCollectionId,
+      key: "wins",
+      required: true,
+      min: 0,
+    }),
+  );
+  await ensureAttribute(databases, databaseId, teamStatsCollectionId, "losses", () =>
+    databases.createIntegerAttribute({
+      databaseId,
+      collectionId: teamStatsCollectionId,
+      key: "losses",
+      required: true,
+      min: 0,
+    }),
+  );
+  await ensureAttribute(
+    databases,
+    databaseId,
+    teamStatsCollectionId,
+    "matchesPlayed",
+    () =>
+      databases.createIntegerAttribute({
+        databaseId,
+        collectionId: teamStatsCollectionId,
+        key: "matchesPlayed",
+        required: true,
+        min: 0,
+      }),
+  );
+  await ensureAttribute(
+    databases,
+    databaseId,
+    teamStatsCollectionId,
+    "roundDiff",
+    () =>
+      databases.createIntegerAttribute({
+        databaseId,
+        collectionId: teamStatsCollectionId,
+        key: "roundDiff",
+        required: true,
+      }),
+  );
+  await ensureAttribute(databases, databaseId, teamStatsCollectionId, "points", () =>
+    databases.createIntegerAttribute({
+      databaseId,
+      collectionId: teamStatsCollectionId,
+      key: "points",
+      required: false,
+      min: 0,
+    }),
+  );
+
+  await ensureAttribute(databases, databaseId, playerStatsCollectionId, "eventId", () =>
+    databases.createStringAttribute({
+      databaseId,
+      collectionId: playerStatsCollectionId,
+      key: "eventId",
+      size: 64,
+      required: true,
+    }),
+  );
+  await ensureAttribute(databases, databaseId, playerStatsCollectionId, "playerId", () =>
+    databases.createStringAttribute({
+      databaseId,
+      collectionId: playerStatsCollectionId,
+      key: "playerId",
+      size: 64,
+      required: true,
+    }),
+  );
+  await ensureAttribute(databases, databaseId, playerStatsCollectionId, "teamId", () =>
+    databases.createStringAttribute({
+      databaseId,
+      collectionId: playerStatsCollectionId,
+      key: "teamId",
+      size: 64,
+      required: true,
+    }),
+  );
+  await ensureAttribute(databases, databaseId, playerStatsCollectionId, "matchId", () =>
+    databases.createStringAttribute({
+      databaseId,
+      collectionId: playerStatsCollectionId,
+      key: "matchId",
+      size: 64,
+      required: false,
+    }),
+  );
+  await ensureAttribute(databases, databaseId, playerStatsCollectionId, "mapRef", () =>
+    databases.createStringAttribute({
+      databaseId,
+      collectionId: playerStatsCollectionId,
+      key: "mapRef",
+      size: 64,
+      required: false,
+    }),
+  );
+  await ensureAttribute(databases, databaseId, playerStatsCollectionId, "kills", () =>
+    databases.createIntegerAttribute({
+      databaseId,
+      collectionId: playerStatsCollectionId,
+      key: "kills",
+      required: true,
+      min: 0,
+    }),
+  );
+  await ensureAttribute(databases, databaseId, playerStatsCollectionId, "deaths", () =>
+    databases.createIntegerAttribute({
+      databaseId,
+      collectionId: playerStatsCollectionId,
+      key: "deaths",
+      required: true,
+      min: 0,
+    }),
+  );
+  await ensureAttribute(databases, databaseId, playerStatsCollectionId, "assists", () =>
+    databases.createIntegerAttribute({
+      databaseId,
+      collectionId: playerStatsCollectionId,
+      key: "assists",
+      required: true,
+      min: 0,
+    }),
+  );
+  await ensureAttribute(
+    databases,
+    databaseId,
+    playerStatsCollectionId,
+    "matchesPlayed",
+    () =>
+      databases.createIntegerAttribute({
+        databaseId,
+        collectionId: playerStatsCollectionId,
+        key: "matchesPlayed",
+        required: true,
+        min: 0,
+      }),
+  );
+  await ensureAttribute(databases, databaseId, playerStatsCollectionId, "mapsPlayed", () =>
+    databases.createIntegerAttribute({
+      databaseId,
+      collectionId: playerStatsCollectionId,
+      key: "mapsPlayed",
+      required: true,
+      min: 0,
+    }),
+  );
+
+  await ensureAttribute(databases, databaseId, mvpCollectionId, "eventId", () =>
+    databases.createStringAttribute({
+      databaseId,
+      collectionId: mvpCollectionId,
+      key: "eventId",
+      size: 64,
+      required: true,
+    }),
+  );
+  await ensureAttribute(databases, databaseId, mvpCollectionId, "playerId", () =>
+    databases.createStringAttribute({
+      databaseId,
+      collectionId: mvpCollectionId,
+      key: "playerId",
+      size: 64,
+      required: true,
+    }),
+  );
+  await ensureAttribute(databases, databaseId, mvpCollectionId, "teamId", () =>
+    databases.createStringAttribute({
+      databaseId,
+      collectionId: mvpCollectionId,
+      key: "teamId",
+      size: 64,
+      required: true,
+    }),
+  );
+  await ensureAttribute(databases, databaseId, mvpCollectionId, "kills", () =>
+    databases.createIntegerAttribute({
+      databaseId,
+      collectionId: mvpCollectionId,
+      key: "kills",
+      required: true,
+      min: 0,
+    }),
+  );
+  await ensureAttribute(databases, databaseId, mvpCollectionId, "deaths", () =>
+    databases.createIntegerAttribute({
+      databaseId,
+      collectionId: mvpCollectionId,
+      key: "deaths",
+      required: true,
+      min: 0,
+    }),
+  );
+  await ensureAttribute(databases, databaseId, mvpCollectionId, "assists", () =>
+    databases.createIntegerAttribute({
+      databaseId,
+      collectionId: mvpCollectionId,
+      key: "assists",
+      required: true,
+      min: 0,
+    }),
+  );
+  await ensureAttribute(databases, databaseId, mvpCollectionId, "matchesPlayed", () =>
+    databases.createIntegerAttribute({
+      databaseId,
+      collectionId: mvpCollectionId,
+      key: "matchesPlayed",
+      required: true,
+      min: 0,
+    }),
+  );
+  await ensureAttribute(databases, databaseId, mvpCollectionId, "roundDiff", () =>
+    databases.createIntegerAttribute({
+      databaseId,
+      collectionId: mvpCollectionId,
+      key: "roundDiff",
+      required: true,
+    }),
+  );
+  await ensureAttribute(databases, databaseId, mvpCollectionId, "points", () =>
+    databases.createIntegerAttribute({
+      databaseId,
+      collectionId: mvpCollectionId,
+      key: "points",
+      required: false,
+      min: 0,
+    }),
+  );
+  await ensureAttribute(databases, databaseId, mvpCollectionId, "score", () =>
+    databases.createFloatAttribute({
+      databaseId,
+      collectionId: mvpCollectionId,
+      key: "score",
+      required: true,
+    }),
+  );
+  await ensureAttribute(databases, databaseId, mvpCollectionId, "rank", () =>
+    databases.createIntegerAttribute({
+      databaseId,
+      collectionId: mvpCollectionId,
+      key: "rank",
+      required: true,
+      min: 1,
+    }),
+  );
+  await ensureAttribute(databases, databaseId, mvpCollectionId, "generatedAt", () =>
+    databases.createDatetimeAttribute({
+      databaseId,
+      collectionId: mvpCollectionId,
+      key: "generatedAt",
+      required: true,
+    }),
+  );
+  await ensureAttribute(
+    databases,
+    databaseId,
+    adminAuditLogsCollectionId,
+    "actorUserId",
+    () =>
+      databases.createStringAttribute({
+        databaseId,
+        collectionId: adminAuditLogsCollectionId,
+        key: "actorUserId",
+        size: 64,
+        required: true,
+      }),
+  );
+  await ensureAttribute(
+    databases,
+    databaseId,
+    adminAuditLogsCollectionId,
+    "actorEmail",
+    () =>
+      databases.createEmailAttribute({
+        databaseId,
+        collectionId: adminAuditLogsCollectionId,
+        key: "actorEmail",
+        required: false,
+      }),
+  );
+  await ensureAttribute(
+    databases,
+    databaseId,
+    adminAuditLogsCollectionId,
+    "action",
+    () =>
+      databases.createStringAttribute({
+        databaseId,
+        collectionId: adminAuditLogsCollectionId,
+        key: "action",
+        size: 120,
+        required: true,
+      }),
+  );
+  await ensureAttribute(
+    databases,
+    databaseId,
+    adminAuditLogsCollectionId,
+    "resourceType",
+    () =>
+      databases.createStringAttribute({
+        databaseId,
+        collectionId: adminAuditLogsCollectionId,
+        key: "resourceType",
+        size: 64,
+        required: true,
+      }),
+  );
+  await ensureAttribute(
+    databases,
+    databaseId,
+    adminAuditLogsCollectionId,
+    "resourceId",
+    () =>
+      databases.createStringAttribute({
+        databaseId,
+        collectionId: adminAuditLogsCollectionId,
+        key: "resourceId",
+        size: 64,
+        required: false,
+      }),
+  );
+  await ensureAttribute(
+    databases,
+    databaseId,
+    adminAuditLogsCollectionId,
+    "eventId",
+    () =>
+      databases.createStringAttribute({
+        databaseId,
+        collectionId: adminAuditLogsCollectionId,
+        key: "eventId",
+        size: 64,
+        required: false,
+      }),
+  );
+  await ensureAttribute(
+    databases,
+    databaseId,
+    adminAuditLogsCollectionId,
+    "detailsJson",
+    () =>
+      databases.createLongtextAttribute({
+        databaseId,
+        collectionId: adminAuditLogsCollectionId,
+        key: "detailsJson",
+        required: false,
+      }),
+  );
+  await ensureAttribute(
+    databases,
+    databaseId,
+    adminAuditLogsCollectionId,
+    "status",
+    () =>
+      databases.createEnumAttribute({
+        databaseId,
+        collectionId: adminAuditLogsCollectionId,
+        key: "status",
+        elements: ["success", "failure"],
+        required: true,
+      }),
+  );
+  await ensureAttribute(
+    databases,
+    databaseId,
+    adminAuditLogsCollectionId,
+    "occurredAt",
+    () =>
+      databases.createDatetimeAttribute({
+        databaseId,
+        collectionId: adminAuditLogsCollectionId,
+        key: "occurredAt",
+        required: true,
+      }),
+  );
+
   await ensureIndex(
     databases,
     databaseId,
@@ -649,6 +1302,126 @@ async function main() {
     "status_idx",
     ["status"],
     [OrderBy.Asc],
+  );
+  await ensureIndex(
+    databases,
+    databaseId,
+    eventsCollectionId,
+    "slug_idx",
+    ["slug"],
+    [OrderBy.Asc],
+  );
+  await ensureIndex(
+    databases,
+    databaseId,
+    eventsCollectionId,
+    "code_idx",
+    ["code"],
+    [OrderBy.Asc],
+  );
+  await ensureIndex(
+    databases,
+    databaseId,
+    eventsCollectionId,
+    "status_idx",
+    ["status"],
+    [OrderBy.Asc],
+  );
+  await ensureIndex(
+    databases,
+    databaseId,
+    matchesCollectionId,
+    "event_id_idx",
+    ["eventId"],
+    [OrderBy.Asc],
+  );
+  await ensureIndex(
+    databases,
+    databaseId,
+    matchesCollectionId,
+    "event_played_at_idx",
+    ["eventId", "playedAt"],
+    [OrderBy.Asc, OrderBy.Asc],
+  );
+  await ensureIndex(
+    databases,
+    databaseId,
+    teamStatsCollectionId,
+    "event_id_idx",
+    ["eventId"],
+    [OrderBy.Asc],
+  );
+  await ensureIndex(
+    databases,
+    databaseId,
+    teamStatsCollectionId,
+    "event_team_idx",
+    ["eventId", "teamId"],
+    [OrderBy.Asc, OrderBy.Asc],
+  );
+  await ensureIndex(
+    databases,
+    databaseId,
+    playerStatsCollectionId,
+    "event_id_idx",
+    ["eventId"],
+    [OrderBy.Asc],
+  );
+  await ensureIndex(
+    databases,
+    databaseId,
+    playerStatsCollectionId,
+    "event_player_idx",
+    ["eventId", "playerId"],
+    [OrderBy.Asc, OrderBy.Asc],
+  );
+  await ensureIndex(
+    databases,
+    databaseId,
+    playerStatsCollectionId,
+    "match_id_idx",
+    ["matchId"],
+    [OrderBy.Asc],
+  );
+  await ensureIndex(
+    databases,
+    databaseId,
+    mvpCollectionId,
+    "event_rank_idx",
+    ["eventId", "rank"],
+    [OrderBy.Asc, OrderBy.Asc],
+  );
+  await ensureIndex(
+    databases,
+    databaseId,
+    mvpCollectionId,
+    "event_player_idx",
+    ["eventId", "playerId"],
+    [OrderBy.Asc, OrderBy.Asc],
+  );
+  await ensureIndex(
+    databases,
+    databaseId,
+    adminAuditLogsCollectionId,
+    "occurred_at_idx",
+    ["occurredAt"],
+    [OrderBy.Asc],
+  );
+  await ensureIndex(
+    databases,
+    databaseId,
+    adminAuditLogsCollectionId,
+    "event_occurred_idx",
+    ["eventId", "occurredAt"],
+    [OrderBy.Asc, OrderBy.Asc],
+  );
+  await ensureIndex(
+    databases,
+    databaseId,
+    adminAuditLogsCollectionId,
+    "action_status_occurred_idx",
+    ["action", "status", "occurredAt"],
+    [OrderBy.Asc, OrderBy.Asc, OrderBy.Asc],
   );
 
   console.log("Appwrite schema deployment complete.");

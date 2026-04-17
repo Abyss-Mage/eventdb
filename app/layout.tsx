@@ -13,7 +13,10 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Pub of Homies Esports League",
+  title: {
+    default: "Pub of Homies Esports League",
+    template: "%s | Pub of Homies Esports League",
+  },
   description: "Registration and admin operations for the esports league system.",
 };
 
