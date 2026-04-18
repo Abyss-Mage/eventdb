@@ -176,6 +176,7 @@ Registration behavior:
 - `PATCH /api/admin/events/update`
 - `POST /api/admin/events/publish`
 - `POST /api/admin/events/archive`
+- `POST /api/admin/events/delete`
 - `GET /api/admin/matches?eventId=<event-id>&status=<match-status>&limit=<1-100>`
 - `POST /api/admin/matches`
 - `PATCH /api/admin/matches/update`
@@ -203,6 +204,14 @@ Registration behavior:
 - `POST /api/admin/auth/mfa/challenge`
 - `POST /api/admin/auth/mfa/verify`
 - `GET /api/admin/auth/mfa/recovery-codes`
+
+Event deletion safety:
+
+- `POST /api/admin/events/delete` requires `{ "eventId": "...", "confirmationCode": "..." }`.
+- The event must already be `archived`.
+- `confirmationCode` must match the event `code`.
+- Deletion is cascading and removes related event-scoped records
+  (matches, standings, player stats, MVP rows, teams, players, free agents, registrations).
 
 Admin dashboard routes:
 
@@ -277,7 +286,7 @@ Team builder notes:
 Admin audit notes:
 
 - Logged actions include admin login/logout, MFA enroll/challenge/verify flows,
-  event create/update/publish/archive, match create/update, leaderboard
+  event create/update/publish/archive/delete, match create/update, leaderboard
   recompute, player stat create/update, Riot sync trigger/results, MVP recompute,
   and registration approve/reject.
 - Success/failure outcomes are recorded with concise operational context.

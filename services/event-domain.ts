@@ -201,6 +201,25 @@ export type UpdatePlayerStatInput = Partial<
   Omit<PlayerStatAggregate, "matchesPlayed" | "mapsPlayed">
 >;
 
+export type DeleteEventCascadeCounts = {
+  matches: number;
+  teamStats: number;
+  playerStats: number;
+  mvp: number;
+  teams: number;
+  players: number;
+  freeAgents: number;
+  registrations: number;
+  events: number;
+};
+
+export type DeleteEventCascadeResult = {
+  eventId: string;
+  eventCode: string;
+  eventName: string;
+  deletedCounts: DeleteEventCascadeCounts;
+};
+
 const EVENT_STATUS_VALUES = new Set<EventStatus>([
   "draft",
   "registration_open",
@@ -999,6 +1018,72 @@ async function listTeamNamesByEvent(eventId: string): Promise<Map<string, string
   }
 }
 
+async function listAllEventScopedDocumentIds(
+  collectionId: string,
+  eventId: string,
+): Promise<string[]> {
+  const databases = getAppwriteDatabases();
+  const { databaseId } = getAppwriteCollections();
+  const documentIds: string[] = [];
+  let cursorAfter: string | undefined;
+
+  try {
+    while (true) {
+      const queries = [
+        Query.equal("eventId", eventId),
+        Query.orderAsc("$id"),
+        Query.limit(100),
+      ];
+
+      if (cursorAfter) {
+        queries.push(Query.cursorAfter(cursorAfter));
+      }
+
+      const page = await databases.listDocuments<Models.Document>(
+        databaseId,
+        collectionId,
+        queries,
+      );
+      documentIds.push(...page.documents.map((document) => document.$id));
+
+      if (page.documents.length < 100) {
+        break;
+      }
+
+      cursorAfter = page.documents.at(-1)?.$id;
+      if (!cursorAfter) {
+        break;
+      }
+    }
+
+    return documentIds;
+  } catch (error) {
+    throw normalizeServiceError(error);
+  }
+}
+
+async function deleteDocumentsByIds(
+  collectionId: string,
+  documentIds: string[],
+): Promise<number> {
+  if (documentIds.length === 0) {
+    return 0;
+  }
+
+  const databases = getAppwriteDatabases();
+  const { databaseId } = getAppwriteCollections();
+
+  try {
+    for (const documentId of documentIds) {
+      await databases.deleteDocument(databaseId, collectionId, documentId);
+    }
+
+    return documentIds.length;
+  } catch (error) {
+    throw normalizeServiceError(error);
+  }
+}
+
 function toEventWriteData(event: {
   name: string;
   slug: string;
@@ -1222,6 +1307,112 @@ export async function archiveEvent(eventId: string): Promise<EventRecord> {
   }
 
   return upsertEvent({ ...existingEvent, status: "archived" });
+}
+
+export async function deleteArchivedEventWithCascade(
+  eventId: string,
+  confirmationCode: string,
+): Promise<DeleteEventCascadeResult> {
+  const normalizedEventId = normalizeRequiredText(eventId, "eventId");
+  const normalizedConfirmationCode = normalizeRequiredText(
+    confirmationCode,
+    "confirmationCode",
+  ).toUpperCase();
+  const existingEvent = await requireEvent(normalizedEventId);
+  const normalizedEventCode = normalizeRequiredText(
+    existingEvent.code,
+    "eventCode",
+    500,
+  ).toUpperCase();
+
+  if (existingEvent.status !== "archived") {
+    throw new HttpError("Only archived events can be deleted.", 409);
+  }
+
+  if (normalizedConfirmationCode !== normalizedEventCode) {
+    throw new HttpError("Confirmation code does not match event code.", 409);
+  }
+
+  const {
+    databaseId,
+    registrationsCollectionId,
+    teamsCollectionId,
+    playersCollectionId,
+    freeAgentsCollectionId,
+    eventsCollectionId,
+    matchesCollectionId,
+    teamStatsCollectionId,
+    playerStatsCollectionId,
+    mvpCollectionId,
+  } = getAppwriteCollections();
+  const databases = getAppwriteDatabases();
+
+  const [
+    matchIds,
+    teamStatIds,
+    playerStatIds,
+    mvpIds,
+    teamIds,
+    playerIds,
+    freeAgentIds,
+    registrationIds,
+  ] = await Promise.all([
+    listAllEventScopedDocumentIds(matchesCollectionId, normalizedEventId),
+    listAllEventScopedDocumentIds(teamStatsCollectionId, normalizedEventId),
+    listAllEventScopedDocumentIds(playerStatsCollectionId, normalizedEventId),
+    listAllEventScopedDocumentIds(mvpCollectionId, normalizedEventId),
+    listAllEventScopedDocumentIds(teamsCollectionId, normalizedEventId),
+    listAllEventScopedDocumentIds(playersCollectionId, normalizedEventId),
+    listAllEventScopedDocumentIds(freeAgentsCollectionId, normalizedEventId),
+    listAllEventScopedDocumentIds(registrationsCollectionId, normalizedEventId),
+  ]);
+
+  const deletedCounts: DeleteEventCascadeCounts = {
+    matches: 0,
+    teamStats: 0,
+    playerStats: 0,
+    mvp: 0,
+    teams: 0,
+    players: 0,
+    freeAgents: 0,
+    registrations: 0,
+    events: 0,
+  };
+
+  try {
+    deletedCounts.playerStats = await deleteDocumentsByIds(
+      playerStatsCollectionId,
+      playerStatIds,
+    );
+    deletedCounts.mvp = await deleteDocumentsByIds(mvpCollectionId, mvpIds);
+    deletedCounts.teamStats = await deleteDocumentsByIds(
+      teamStatsCollectionId,
+      teamStatIds,
+    );
+    deletedCounts.matches = await deleteDocumentsByIds(matchesCollectionId, matchIds);
+    deletedCounts.players = await deleteDocumentsByIds(playersCollectionId, playerIds);
+    deletedCounts.teams = await deleteDocumentsByIds(teamsCollectionId, teamIds);
+    deletedCounts.freeAgents = await deleteDocumentsByIds(
+      freeAgentsCollectionId,
+      freeAgentIds,
+    );
+    deletedCounts.registrations = await deleteDocumentsByIds(
+      registrationsCollectionId,
+      registrationIds,
+    );
+
+    await databases.deleteDocument(databaseId, eventsCollectionId, normalizedEventId);
+    deletedCounts.events = 1;
+  } catch (error) {
+    throw normalizeServiceError(error);
+  }
+
+  return {
+    eventId: normalizedEventId,
+    eventCode: normalizedEventCode,
+    eventName: existingEvent.name,
+    deletedCounts,
+  };
 }
 
 export async function getMatchById(matchId: string): Promise<MatchRecord | null> {

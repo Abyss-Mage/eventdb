@@ -355,6 +355,13 @@ export const eventTransitionPayloadSchema = z.object({
   eventId: textSchema.min(1, "Event ID is required."),
 });
 
+export const deleteEventPayloadSchema = z.object({
+  eventId: textSchema.min(1, "Event ID is required."),
+  confirmationCode: textSchema
+    .min(1, "Confirmation code is required.")
+    .max(32, "Confirmation code cannot exceed 32 characters."),
+});
+
 export const adminMvpQuerySchema = z.object({
   eventId: textSchema.min(1, "eventId query parameter is required."),
 });

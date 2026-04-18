@@ -43,6 +43,33 @@ type EventMutationResponse =
       error: string;
     };
 
+type EventDeleteMutationResponse =
+  | {
+      success: true;
+      data: {
+        deleted: {
+          eventId: string;
+          eventCode: string;
+          eventName: string;
+          deletedCounts: {
+            matches: number;
+            teamStats: number;
+            playerStats: number;
+            mvp: number;
+            teams: number;
+            players: number;
+            freeAgents: number;
+            registrations: number;
+            events: number;
+          };
+        };
+      };
+    }
+  | {
+      success: false;
+      error: string;
+    };
+
 type MatchesResponse =
   | {
       success: true;
@@ -380,6 +407,9 @@ export function EventManagementClient({
   const [isRiotSyncSubmitting, setIsRiotSyncSubmitting] = useState(false);
   const [actionPendingFor, setActionPendingFor] = useState<string | null>(null);
   const [copiedLinkFor, setCopiedLinkFor] = useState<string | null>(null);
+  const [deleteConfirmationByEventId, setDeleteConfirmationByEventId] = useState<
+    Record<string, string>
+  >({});
   const [riotConfig, setRiotConfig] = useState<RiotConfig | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -1339,6 +1369,96 @@ export function EventManagementClient({
       );
     } catch {
       setErrorMessage("Unable to update event state.");
+    } finally {
+      setActionPendingFor(null);
+    }
+  }
+
+  async function runDeleteEvent(event: EventRecord) {
+    const confirmationCode = (deleteConfirmationByEventId[event.id] ?? "").trim();
+    if (!confirmationCode) {
+      setErrorMessage("Type the event code to confirm deletion.");
+      return;
+    }
+
+    setActionPendingFor(event.id);
+    setErrorMessage(null);
+    setSuccessMessage(null);
+
+    try {
+      const response = await fetch("/api/admin/events/delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          eventId: event.id,
+          confirmationCode,
+        }),
+      });
+      const body = (await response.json()) as EventDeleteMutationResponse;
+
+      if (!body.success) {
+        if (applyAuthRedirect(response.status, body.error)) {
+          return;
+        }
+
+        setErrorMessage(body.error);
+        return;
+      }
+
+      const deletedEventId = body.data.deleted.eventId;
+      const nextEvents = events.filter((entry) => entry.id !== deletedEventId);
+      const nextSelectedEventId = resolveSelectedEventId(
+        nextEvents,
+        selectedEventId === deletedEventId ? "" : selectedEventId,
+      );
+      const wasActiveEvent = activeEventId === deletedEventId;
+
+      setEvents(nextEvents);
+      setSelectedEventId(nextSelectedEventId);
+      setDeleteConfirmationByEventId((current) => {
+        const next = { ...current };
+        delete next[deletedEventId];
+        return next;
+      });
+
+      setMatches((currentMatches) =>
+        currentMatches.filter((match) => match.eventId !== deletedEventId),
+      );
+      setApprovedTeams((currentTeams) =>
+        currentTeams.filter((team) => team.eventId !== deletedEventId),
+      );
+      setStandings((currentStandings) =>
+        currentStandings.filter((standing) => standing.eventId !== deletedEventId),
+      );
+      setPlayerStats((currentPlayerStats) =>
+        currentPlayerStats.filter((playerStat) => playerStat.eventId !== deletedEventId),
+      );
+      if (mvpSummary?.eventId === deletedEventId) {
+        setMvpSummary(null);
+      }
+
+      if (editingEventId === deletedEventId) {
+        resetForm();
+      }
+
+      if (wasActiveEvent) {
+        onSelectEventForMatches(nextSelectedEventId);
+      }
+
+      const deletedCounts = body.data.deleted.deletedCounts;
+      setSuccessMessage(
+        `Event deleted. Removed ${deletedCounts.matches} matches, ${deletedCounts.teamStats} standings, ${deletedCounts.playerStats} player stats, ${deletedCounts.mvp} MVP rows, ${deletedCounts.teams} teams, ${deletedCounts.players} players, ${deletedCounts.freeAgents} free agents, and ${deletedCounts.registrations} registrations.`,
+      );
+    } catch (error) {
+      if (applyAdminGuardRedirect(router, error)) {
+        return;
+      }
+
+      if (error instanceof Error && error.message) {
+        setErrorMessage(error.message);
+      } else {
+        setErrorMessage("Unable to delete event.");
+      }
     } finally {
       setActionPendingFor(null);
     }
@@ -2787,6 +2907,11 @@ export function EventManagementClient({
             const canPublish =
               event.status === "draft" || event.status === "registration_closed";
             const canArchive = event.status !== "archived";
+            const canDelete = event.status === "archived";
+            const deleteConfirmationInput = deleteConfirmationByEventId[event.id] ?? "";
+            const isDeleteConfirmationMatch =
+              deleteConfirmationInput.trim().toUpperCase() ===
+              event.code.trim().toUpperCase();
             const registrationLinkPath = event.registrationLinkToken
               ? buildRegistrationPath(event.id, event.registrationLinkToken)
               : null;
@@ -2882,6 +3007,38 @@ export function EventManagementClient({
                   >
                     Archive
                   </button>
+                  <button
+                    type="button"
+                    disabled={isPending || !canDelete || !isDeleteConfirmationMatch}
+                    onClick={() => void runDeleteEvent(event)}
+                    className="rounded-md bg-red-700 px-3 py-2 text-sm text-white disabled:cursor-not-allowed disabled:opacity-70"
+                  >
+                    Delete Event
+                  </button>
+                </div>
+                <div className="mt-3 rounded-md border border-red-200 bg-red-50 p-3 text-xs text-red-800 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-300">
+                  <p className="font-semibold">Danger Zone</p>
+                  <p className="mt-1">
+                    Type event code <span className="font-mono">{event.code}</span> to enable
+                    permanent deletion of this event and related data.
+                  </p>
+                  <input
+                    value={deleteConfirmationInput}
+                    onChange={(inputEvent) =>
+                      setDeleteConfirmationByEventId((current) => ({
+                        ...current,
+                        [event.id]: inputEvent.target.value,
+                      }))
+                    }
+                    disabled={isPending || !canDelete}
+                    placeholder={`Type ${event.code} to confirm`}
+                    className="mt-2 w-full rounded-md border border-red-300 bg-white px-3 py-2 font-mono text-sm text-zinc-900 disabled:cursor-not-allowed disabled:opacity-70 dark:border-red-800 dark:bg-zinc-950 dark:text-zinc-100"
+                  />
+                  {!canDelete ? (
+                    <p className="mt-2">
+                      Archive this event first before deleting.
+                    </p>
+                  ) : null}
                 </div>
               </article>
             );
