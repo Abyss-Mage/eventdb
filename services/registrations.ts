@@ -11,6 +11,7 @@ import {
 import { getAppwriteCollections, getAppwriteDatabases } from "@/lib/appwrite/server";
 import { HttpError } from "@/lib/errors/http-error";
 import type {
+  ApprovedTeamRosterRecord,
   EventRecord,
   RandomTeamCreationSummary,
   RegistrationRecord,
@@ -19,6 +20,7 @@ import type {
   SoloRegistrationInput,
   SoloPlayerPoolRecord,
   SoloPlayerStatus,
+  TeamRosterPlayerRecord,
   TeamPlayerInput,
   TeamRegistrationInput,
   UnderfilledTeamRecord,
@@ -61,7 +63,20 @@ type TeamDocument = Models.Document & {
   eventId: string;
   playerCount: number;
   status?: string;
-  registrationId: string;
+  registrationId?: string;
+  email?: string;
+  teamLogoUrl?: string;
+  teamTag?: string;
+};
+
+type PlayerDocument = Models.Document & {
+  name: string;
+  riotId: string;
+  discordId: string;
+  role: TeamPlayerInput["role"];
+  eventId: string;
+  teamId: string;
+  registrationId?: string;
 };
 
 function isAppwriteException(error: unknown): error is AppwriteException {
@@ -484,6 +499,59 @@ function mapUnderfilledTeamDocument(document: TeamDocument): UnderfilledTeamReco
   };
 }
 
+function mapTeamRosterPlayer(document: PlayerDocument): TeamRosterPlayerRecord {
+  return {
+    id: document.$id,
+    name: document.name,
+    riotId: document.riotId,
+    discordId: document.discordId,
+    role: document.role,
+    eventId: document.eventId,
+    teamId: document.teamId,
+    registrationId: document.registrationId,
+    createdAt: document.$createdAt ?? null,
+    updatedAt: document.$updatedAt ?? null,
+  };
+}
+
+async function listAllPlayersByEvent(eventId: string): Promise<PlayerDocument[]> {
+  const databases = getAppwriteDatabases();
+  const { databaseId, playersCollectionId } = getAppwriteCollections();
+  const documents: PlayerDocument[] = [];
+  let cursorAfter: string | undefined;
+
+  try {
+    while (true) {
+      const queries = [Query.equal("eventId", eventId), Query.orderAsc("$id"), Query.limit(100)];
+
+      if (cursorAfter) {
+        queries.push(Query.cursorAfter(cursorAfter));
+      }
+
+      const page = await databases.listDocuments<PlayerDocument>(
+        databaseId,
+        playersCollectionId,
+        queries,
+      );
+
+      documents.push(...page.documents);
+
+      if (page.documents.length < 100) {
+        break;
+      }
+
+      cursorAfter = page.documents.at(-1)?.$id;
+      if (!cursorAfter) {
+        break;
+      }
+    }
+
+    return documents;
+  } catch (error) {
+    throw normalizeServiceError(error);
+  }
+}
+
 function normalizeSelectedSoloPlayerIds(ids: string[]): string[] {
   const normalized = ids
     .map((value) => value.trim())
@@ -665,6 +733,91 @@ export async function listUnderfilledTeamsByEvent(
     );
 
     return documents.documents.map(mapUnderfilledTeamDocument);
+  } catch (error) {
+    throw normalizeServiceError(error);
+  }
+}
+
+export async function listApprovedTeamRostersByEvent(
+  eventId: string,
+  limit = 100,
+): Promise<ApprovedTeamRosterRecord[]> {
+  const databases = getAppwriteDatabases();
+  const { databaseId, teamsCollectionId } = getAppwriteCollections();
+  const normalizedEventId = eventId.trim();
+
+  if (!normalizedEventId) {
+    throw new HttpError("Event ID is required.", 400);
+  }
+
+  if (!Number.isInteger(limit) || limit < 1 || limit > 200) {
+    throw new HttpError("Limit must be an integer between 1 and 200.", 400);
+  }
+
+  try {
+    const teamsPage = await databases.listDocuments<TeamDocument>(
+      databaseId,
+      teamsCollectionId,
+      [
+        Query.equal("eventId", normalizedEventId),
+        Query.orderAsc("$createdAt"),
+        Query.limit(limit),
+      ],
+    );
+    const approvedTeams = teamsPage.documents.filter(
+      (team) => team.status?.trim().toLowerCase() === "approved",
+    );
+
+    if (approvedTeams.length === 0) {
+      return [];
+    }
+
+    const players = await listAllPlayersByEvent(normalizedEventId);
+    const playersByTeamId = new Map<string, TeamRosterPlayerRecord[]>();
+    for (const player of players) {
+      const mappedPlayer = mapTeamRosterPlayer(player);
+      const teamPlayers = playersByTeamId.get(player.teamId);
+      if (teamPlayers) {
+        teamPlayers.push(mappedPlayer);
+      } else {
+        playersByTeamId.set(player.teamId, [mappedPlayer]);
+      }
+    }
+
+    const sortedApprovedTeams = approvedTeams.sort((first, second) => {
+      if (first.teamName !== second.teamName) {
+        return first.teamName.localeCompare(second.teamName);
+      }
+      return first.$id.localeCompare(second.$id);
+    });
+
+    return sortedApprovedTeams.map((team) => {
+      const rosterPlayers = [...(playersByTeamId.get(team.$id) ?? [])].sort((first, second) => {
+        const firstCreated = first.createdAt ?? "";
+        const secondCreated = second.createdAt ?? "";
+        if (firstCreated !== secondCreated) {
+          return firstCreated.localeCompare(secondCreated);
+        }
+
+        return first.id.localeCompare(second.id);
+      });
+
+      return {
+        id: team.$id,
+        teamName: team.teamName,
+        captainDiscordId: team.captainDiscordId,
+        eventId: team.eventId,
+        playerCount: Number.isFinite(team.playerCount) ? team.playerCount : rosterPlayers.length,
+        status: team.status,
+        registrationId: team.registrationId,
+        email: team.email,
+        teamLogoUrl: team.teamLogoUrl,
+        teamTag: team.teamTag,
+        createdAt: team.$createdAt ?? null,
+        updatedAt: team.$updatedAt ?? null,
+        players: rosterPlayers,
+      };
+    });
   } catch (error) {
     throw normalizeServiceError(error);
   }

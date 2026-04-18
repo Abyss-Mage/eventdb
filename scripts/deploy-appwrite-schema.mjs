@@ -220,6 +220,26 @@ async function ensureIndex(
   console.log(`Index ensured: ${collectionId}.${key}`);
 }
 
+async function upsertDocument(
+  databases,
+  databaseId,
+  collectionId,
+  documentId,
+  data,
+) {
+  try {
+    await databases.getDocument(databaseId, collectionId, documentId);
+    await databases.updateDocument(databaseId, collectionId, documentId, data);
+    return;
+  } catch (error) {
+    if (!isNotFound(error)) {
+      throw error;
+    }
+  }
+
+  await databases.createDocument(databaseId, collectionId, documentId, data);
+}
+
 async function main() {
   const cwd = process.cwd();
   loadEnvFromFile(path.join(cwd, ".env"));
@@ -244,6 +264,7 @@ async function main() {
     "player_stats",
   );
   const mvpCollectionId = envWithDefault("APPWRITE_MVP_COLLECTION_ID", "mvp");
+  const mapsCollectionId = envWithDefault("APPWRITE_MAPS_COLLECTION_ID", "maps");
   const adminAuditLogsCollectionId = envWithDefault(
     "APPWRITE_ADMIN_AUDIT_LOGS_COLLECTION_ID",
     "admin_audit_logs",
@@ -282,6 +303,20 @@ async function main() {
     "forfeit",
     "cancelled",
   ];
+  const valorantMaps = [
+    { key: "abyss", name: "Abyss", sortOrder: 1 },
+    { key: "ascent", name: "Ascent", sortOrder: 2 },
+    { key: "bind", name: "Bind", sortOrder: 3 },
+    { key: "breeze", name: "Breeze", sortOrder: 4 },
+    { key: "corrode", name: "Corrode", sortOrder: 5 },
+    { key: "fracture", name: "Fracture", sortOrder: 6 },
+    { key: "haven", name: "Haven", sortOrder: 7 },
+    { key: "icebox", name: "Icebox", sortOrder: 8 },
+    { key: "lotus", name: "Lotus", sortOrder: 9 },
+    { key: "pearl", name: "Pearl", sortOrder: 10 },
+    { key: "split", name: "Split", sortOrder: 11 },
+    { key: "sunset", name: "Sunset", sortOrder: 12 },
+  ];
 
   const client = new Client()
     .setEndpoint(endpoint)
@@ -301,6 +336,7 @@ async function main() {
   await ensureCollection(databases, databaseId, teamStatsCollectionId, "team_stats");
   await ensureCollection(databases, databaseId, playerStatsCollectionId, "player_stats");
   await ensureCollection(databases, databaseId, mvpCollectionId, "mvp");
+  await ensureCollection(databases, databaseId, mapsCollectionId, "maps");
   await ensureCollection(
     databases,
     databaseId,
@@ -829,6 +865,15 @@ async function main() {
       required: true,
     }),
   );
+  await ensureAttribute(databases, databaseId, matchesCollectionId, "mapRef", () =>
+    databases.createStringAttribute({
+      databaseId,
+      collectionId: matchesCollectionId,
+      key: "mapRef",
+      size: 64,
+      required: false,
+    }),
+  );
   await ensureAttribute(databases, databaseId, matchesCollectionId, "playedAt", () =>
     databases.createDatetimeAttribute({
       databaseId,
@@ -889,6 +934,42 @@ async function main() {
         key: "awayRoundDiff",
         required: true,
       }),
+  );
+  await ensureAttribute(databases, databaseId, mapsCollectionId, "key", () =>
+    databases.createStringAttribute({
+      databaseId,
+      collectionId: mapsCollectionId,
+      key: "key",
+      size: 64,
+      required: true,
+    }),
+  );
+  await ensureAttribute(databases, databaseId, mapsCollectionId, "name", () =>
+    databases.createStringAttribute({
+      databaseId,
+      collectionId: mapsCollectionId,
+      key: "name",
+      size: 64,
+      required: true,
+    }),
+  );
+  await ensureAttribute(databases, databaseId, mapsCollectionId, "sortOrder", () =>
+    databases.createIntegerAttribute({
+      databaseId,
+      collectionId: mapsCollectionId,
+      key: "sortOrder",
+      required: true,
+      min: 1,
+    }),
+  );
+  await ensureAttribute(databases, databaseId, mapsCollectionId, "isActive", () =>
+    databases.createBooleanAttribute({
+      databaseId,
+      collectionId: mapsCollectionId,
+      key: "isActive",
+      required: true,
+      default: true,
+    }),
   );
 
   await ensureAttribute(databases, databaseId, teamStatsCollectionId, "eventId", () =>
@@ -1381,6 +1462,14 @@ async function main() {
   await ensureIndex(
     databases,
     databaseId,
+    matchesCollectionId,
+    "event_map_ref_idx",
+    ["eventId", "mapRef"],
+    [OrderBy.Asc, OrderBy.Asc],
+  );
+  await ensureIndex(
+    databases,
+    databaseId,
     teamStatsCollectionId,
     "event_id_idx",
     ["eventId"],
@@ -1437,6 +1526,22 @@ async function main() {
   await ensureIndex(
     databases,
     databaseId,
+    mapsCollectionId,
+    "key_idx",
+    ["key"],
+    [OrderBy.Asc],
+  );
+  await ensureIndex(
+    databases,
+    databaseId,
+    mapsCollectionId,
+    "sort_order_idx",
+    ["sortOrder"],
+    [OrderBy.Asc],
+  );
+  await ensureIndex(
+    databases,
+    databaseId,
     adminAuditLogsCollectionId,
     "occurred_at_idx",
     ["occurredAt"],
@@ -1458,6 +1563,22 @@ async function main() {
     ["action", "status", "occurredAt"],
     [OrderBy.Asc, OrderBy.Asc, OrderBy.Asc],
   );
+
+  for (const mapEntry of valorantMaps) {
+    await upsertDocument(
+      databases,
+      databaseId,
+      mapsCollectionId,
+      mapEntry.key,
+      {
+        key: mapEntry.key,
+        name: mapEntry.name,
+        sortOrder: mapEntry.sortOrder,
+        isActive: true,
+      },
+    );
+    console.log(`Map seeded: ${mapEntry.key}`);
+  }
 
   console.log("Appwrite schema deployment complete.");
 }

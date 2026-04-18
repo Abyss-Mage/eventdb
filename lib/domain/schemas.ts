@@ -250,6 +250,9 @@ const optionalMatchRefSchema = z.preprocess(
     typeof value === "string" && value.trim().length === 0 ? undefined : value,
   textSchema.max(64, "Reference cannot exceed 64 characters.").optional(),
 );
+const matchMapRefSchema = textSchema
+  .min(1, "Map is required.")
+  .max(64, "Map cannot exceed 64 characters.");
 const optionalPointsSchema = z.preprocess(
   (value) => (value === "" || value === null ? undefined : value),
   z.number().int().optional(),
@@ -367,12 +370,11 @@ const matchMutableSchema = z.object({
   eventId: textSchema.min(1, "Event ID is required."),
   homeTeamId: textSchema.min(1, "Home team ID is required."),
   awayTeamId: textSchema.min(1, "Away team ID is required."),
+  mapRef: matchMapRefSchema,
   playedAt: isoDatetimeSchema,
   status: matchStatusSchema,
   homeScore: z.number().int().min(0),
   awayScore: z.number().int().min(0),
-  homeRoundDiff: z.number().int(),
-  awayRoundDiff: z.number().int(),
 });
 
 function appendMatchTeamValidation(
@@ -415,6 +417,7 @@ export const updateMatchPayloadSchema = matchMutableSchema
   .partial()
   .extend({
     matchId: textSchema.min(1, "Match ID is required."),
+    mapRef: matchMapRefSchema,
   })
   .superRefine((payload, ctx) => {
     const hasAtLeastOneUpdate = Object.entries(payload).some(
@@ -443,7 +446,26 @@ export const teamStandingAggregateSchema = z.object({
   points: optionalPointsSchema,
 });
 
+export const mapRecordSchema = z.object({
+  id: textSchema.min(1, "Map ID is required."),
+  key: textSchema.min(1, "Map key is required."),
+  name: textSchema.min(1, "Map name is required."),
+  sortOrder: z.number().int().min(1),
+  isActive: z.boolean(),
+});
+
 const playerStatMutableSchema = z.object({
+  eventId: textSchema.min(1, "Event ID is required."),
+  playerId: textSchema.min(1, "Player ID is required."),
+  teamId: textSchema.min(1, "Team ID is required."),
+  matchId: textSchema.min(1, "Match ID is required."),
+  mapRef: textSchema.min(1, "Map is required."),
+  kills: z.number().int().min(0),
+  deaths: z.number().int().min(0),
+  assists: z.number().int().min(0),
+});
+
+export const playerStatAggregateSchema = z.object({
   eventId: textSchema.min(1, "Event ID is required."),
   playerId: textSchema.min(1, "Player ID is required."),
   teamId: textSchema.min(1, "Team ID is required."),
@@ -456,9 +478,7 @@ const playerStatMutableSchema = z.object({
   mapsPlayed: z.number().int().min(0),
 });
 
-export const playerStatAggregateSchema = playerStatMutableSchema;
-
-export const playerStatRecordSchema = playerStatMutableSchema.extend({
+export const playerStatRecordSchema = playerStatAggregateSchema.extend({
   id: textSchema.min(1, "Player stat ID is required."),
 });
 

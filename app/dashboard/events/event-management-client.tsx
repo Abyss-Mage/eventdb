@@ -1,6 +1,6 @@
 "use client";
 
-import { type FormEvent, useCallback, useEffect, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import {
@@ -9,7 +9,9 @@ import {
   throwAdminGuardError,
 } from "@/app/dashboard/admin-client-auth";
 import type {
+  ApprovedTeamRosterRecord,
   EventRecord,
+  MapRecord,
   MatchRecord,
   MvpSummary,
   PlayerStatRecord,
@@ -58,6 +60,30 @@ type MatchMutationResponse =
       success: true;
       data: {
         match: MatchRecord;
+      };
+    }
+  | {
+      success: false;
+      error: string;
+    };
+
+type TeamRostersResponse =
+  | {
+      success: true;
+      data: {
+        teams: ApprovedTeamRosterRecord[];
+      };
+    }
+  | {
+      success: false;
+      error: string;
+    };
+
+type MapsResponse =
+  | {
+      success: true;
+      data: {
+        maps: MapRecord[];
       };
     }
   | {
@@ -177,23 +203,21 @@ const EMPTY_FORM_STATE: EventFormState = {
 type MatchFormState = {
   homeTeamId: string;
   awayTeamId: string;
+  mapRef: string;
   playedAt: string;
   status: MatchRecord["status"];
   homeScore: string;
   awayScore: string;
-  homeRoundDiff: string;
-  awayRoundDiff: string;
 };
 
 const EMPTY_MATCH_FORM_STATE: MatchFormState = {
   homeTeamId: "",
   awayTeamId: "",
+  mapRef: "",
   playedAt: "",
   status: "scheduled",
   homeScore: "0",
   awayScore: "0",
-  homeRoundDiff: "0",
-  awayRoundDiff: "0",
 };
 
 const MATCH_STATUS_OPTIONS: MatchRecord["status"][] = [
@@ -212,8 +236,6 @@ type PlayerStatFormState = {
   kills: string;
   deaths: string;
   assists: string;
-  matchesPlayed: string;
-  mapsPlayed: string;
 };
 
 type PlayerStatsFilterState = {
@@ -229,8 +251,6 @@ const EMPTY_PLAYER_STAT_FORM_STATE: PlayerStatFormState = {
   kills: "0",
   deaths: "0",
   assists: "0",
-  matchesPlayed: "0",
-  mapsPlayed: "0",
 };
 
 const EMPTY_PLAYER_STATS_FILTER_STATE: PlayerStatsFilterState = {
@@ -329,6 +349,8 @@ export function EventManagementClient({
   const [editingEventId, setEditingEventId] = useState<string | null>(null);
   const [selectedEventId, setSelectedEventId] = useState("");
   const [matches, setMatches] = useState<MatchRecord[]>([]);
+  const [approvedTeams, setApprovedTeams] = useState<ApprovedTeamRosterRecord[]>([]);
+  const [maps, setMaps] = useState<MapRecord[]>([]);
   const [standings, setStandings] = useState<TeamStandingAggregate[]>([]);
   const [playerStats, setPlayerStats] = useState<PlayerStatRecord[]>([]);
   const [mvpSummary, setMvpSummary] = useState<MvpSummary | null>(null);
@@ -338,6 +360,8 @@ export function EventManagementClient({
   const [matchFormState, setMatchFormState] =
     useState<MatchFormState>(EMPTY_MATCH_FORM_STATE);
   const [editingMatchId, setEditingMatchId] = useState<string | null>(null);
+  const matchFormRef = useRef<HTMLFormElement | null>(null);
+  const matchPrimaryFieldRef = useRef<HTMLSelectElement | null>(null);
   const [playerStatFormState, setPlayerStatFormState] = useState<PlayerStatFormState>(
     EMPTY_PLAYER_STAT_FORM_STATE,
   );
@@ -361,6 +385,7 @@ export function EventManagementClient({
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [matchErrorMessage, setMatchErrorMessage] = useState<string | null>(null);
   const [matchSuccessMessage, setMatchSuccessMessage] = useState<string | null>(null);
+  const [matchEditNoticeMessage, setMatchEditNoticeMessage] = useState<string | null>(null);
   const [standingsErrorMessage, setStandingsErrorMessage] = useState<string | null>(null);
   const [standingsSuccessMessage, setStandingsSuccessMessage] = useState<string | null>(null);
   const [playerStatsErrorMessage, setPlayerStatsErrorMessage] = useState<string | null>(null);
@@ -382,6 +407,36 @@ export function EventManagementClient({
   const visiblePlayerStats = activeEventId
     ? playerStats.filter((statLine) => statLine.eventId === activeEventId)
     : [];
+  const matchTeamOptions = approvedTeams.map((team) => ({
+    id: team.id,
+    name: team.teamName,
+  }));
+  const selectedPlayerTeam = approvedTeams.find(
+    (team) => team.id === playerStatFormState.teamId,
+  );
+  const selectedTeamPlayers = selectedPlayerTeam?.players ?? [];
+  const mapNameByKey = new Map(maps.map((mapEntry) => [mapEntry.key, mapEntry.name]));
+  const selectedPlayerStatMatch = playerStatFormState.matchId
+    ? visibleMatches.find((match) => match.id === playerStatFormState.matchId) ?? null
+    : null;
+  const selectedPlayerStatMapRef = selectedPlayerStatMatch?.mapRef?.trim() ?? "";
+  const selectedPlayerStatMap = selectedPlayerStatMapRef
+    ? maps.find((mapEntry) => mapEntry.key === selectedPlayerStatMapRef) ?? null
+    : null;
+  const selectedPlayerStatMapError = playerStatFormState.matchId
+    ? !selectedPlayerStatMatch
+      ? "Selected match is unavailable. Pick a valid Match ID."
+      : !selectedPlayerStatMapRef
+        ? "Selected match has no map assigned. Update the match before saving player stats."
+        : !selectedPlayerStatMap
+          ? `Selected match map (${selectedPlayerStatMapRef}) is not in active maps. Update the match map first.`
+          : null
+    : null;
+  const selectedPlayerStatMapLabel = selectedPlayerStatMap
+    ? `${selectedPlayerStatMap.name} (${selectedPlayerStatMapRef})`
+    : selectedPlayerStatMapRef
+      ? `Unknown Map (${selectedPlayerStatMapRef})`
+      : "";
 
   const applyAuthRedirect = useCallback(
     (statusCode: number, errorMessage: string): boolean =>
@@ -414,6 +469,39 @@ export function EventManagementClient({
     }
 
     return body.data.matches;
+  }, []);
+
+  const fetchTeamRosters = useCallback(
+    async (eventId: string): Promise<ApprovedTeamRosterRecord[]> => {
+      const query = new URLSearchParams({ eventId, limit: "200" });
+      const response = await fetch(`/api/admin/teams/roster?${query.toString()}`, {
+        method: "GET",
+      });
+      const body = (await response.json()) as TeamRostersResponse;
+
+      if (!body.success) {
+        throwAdminGuardError(response.status, body.error);
+        throw new Error(body.error);
+      }
+
+      return body.data.teams;
+    },
+    [],
+  );
+
+  const fetchMaps = useCallback(async (): Promise<MapRecord[]> => {
+    const query = new URLSearchParams({ activeOnly: "true", limit: "100" });
+    const response = await fetch(`/api/admin/maps?${query.toString()}`, {
+      method: "GET",
+    });
+    const body = (await response.json()) as MapsResponse;
+
+    if (!body.success) {
+      throwAdminGuardError(response.status, body.error);
+      throw new Error(body.error);
+    }
+
+    return body.data.maps;
   }, []);
 
   const fetchStandings = useCallback(
@@ -508,14 +596,23 @@ export function EventManagementClient({
 
       if (!nextSelectedEventId) {
         setMatches([]);
+        setApprovedTeams([]);
+        setMaps([]);
         setStandings([]);
         setPlayerStats([]);
         setMvpSummary(null);
       } else {
-        const [nextMatches, nextStandings, nextPlayerStats, nextMvpSummary] = await Promise.all([
-          showMatches
+        const [nextMatches, nextTeams, nextMaps, nextStandings, nextPlayerStats, nextMvpSummary] =
+          await Promise.all([
+          showMatches || showPlayerStats
             ? fetchMatches(nextSelectedEventId)
             : Promise.resolve([] as MatchRecord[]),
+          showMatches || showPlayerStats
+            ? fetchTeamRosters(nextSelectedEventId)
+            : Promise.resolve([] as ApprovedTeamRosterRecord[]),
+          showMatches || showPlayerStats
+            ? fetchMaps()
+            : Promise.resolve([] as MapRecord[]),
           showLeaderboard
             ? fetchStandings(nextSelectedEventId)
             : Promise.resolve([] as TeamStandingAggregate[]),
@@ -527,6 +624,8 @@ export function EventManagementClient({
             : Promise.resolve(null as MvpSummary | null),
         ]);
         setMatches(nextMatches);
+        setApprovedTeams(nextTeams);
+        setMaps(nextMaps);
         setStandings(nextStandings);
         setPlayerStats(nextPlayerStats);
         setMvpSummary(nextMvpSummary);
@@ -547,9 +646,11 @@ export function EventManagementClient({
   }, [
     fetchEvents,
     fetchMatches,
+    fetchMaps,
     fetchMvpSummary,
     fetchPlayerStats,
     fetchStandings,
+    fetchTeamRosters,
     playerStatsFilter,
     router,
     selectedEventId,
@@ -580,6 +681,50 @@ export function EventManagementClient({
       setIsMatchesLoading(false);
     }
   }, [fetchMatches, router]);
+
+  const refreshTeamRosters = useCallback(
+    async (eventId: string) => {
+      if (!eventId) {
+        setApprovedTeams([]);
+        return;
+      }
+
+      try {
+        const nextTeams = await fetchTeamRosters(eventId);
+        setApprovedTeams(nextTeams);
+      } catch (error) {
+        if (applyAdminGuardRedirect(router, error)) {
+          return;
+        }
+
+        if (error instanceof Error && error.message) {
+          setMatchErrorMessage(error.message);
+        } else {
+          setMatchErrorMessage("Unable to load approved teams.");
+        }
+      }
+    },
+    [fetchTeamRosters, router],
+  );
+
+  const refreshMapOptions = useCallback(async () => {
+    try {
+      const nextMaps = await fetchMaps();
+      setMaps(nextMaps);
+    } catch (error) {
+      if (applyAdminGuardRedirect(router, error)) {
+        return;
+      }
+
+      if (error instanceof Error && error.message) {
+        setMatchErrorMessage(error.message);
+        setPlayerStatsErrorMessage(error.message);
+      } else {
+        setMatchErrorMessage("Unable to load maps.");
+        setPlayerStatsErrorMessage("Unable to load maps.");
+      }
+    }
+  }, [fetchMaps, router]);
 
   const refreshStandings = useCallback(async (eventId: string) => {
     if (!eventId) {
@@ -678,11 +823,17 @@ export function EventManagementClient({
         setSelectedEventId(nextSelectedEventId);
 
         if (nextSelectedEventId) {
-          const [nextMatches, nextStandings, nextPlayerStats, nextMvpSummary] =
+          const [nextMatches, nextTeams, nextMaps, nextStandings, nextPlayerStats, nextMvpSummary] =
             await Promise.all([
-              showMatches
+              showMatches || showPlayerStats
                 ? fetchMatches(nextSelectedEventId)
                 : Promise.resolve([] as MatchRecord[]),
+              showMatches || showPlayerStats
+                ? fetchTeamRosters(nextSelectedEventId)
+                : Promise.resolve([] as ApprovedTeamRosterRecord[]),
+              showMatches || showPlayerStats
+                ? fetchMaps()
+                : Promise.resolve([] as MapRecord[]),
               showLeaderboard
                 ? fetchStandings(nextSelectedEventId)
                 : Promise.resolve([] as TeamStandingAggregate[]),
@@ -694,11 +845,15 @@ export function EventManagementClient({
                 : Promise.resolve(null as MvpSummary | null),
             ]);
           setMatches(nextMatches);
+          setApprovedTeams(nextTeams);
+          setMaps(nextMaps);
           setStandings(nextStandings);
           setPlayerStats(nextPlayerStats);
           setMvpSummary(nextMvpSummary);
         } else {
           setMatches([]);
+          setApprovedTeams([]);
+          setMaps([]);
           setStandings([]);
           setPlayerStats([]);
           setMvpSummary(null);
@@ -722,9 +877,11 @@ export function EventManagementClient({
   }, [
     fetchEvents,
     fetchMatches,
+    fetchMaps,
     fetchMvpSummary,
     fetchPlayerStats,
     fetchStandings,
+    fetchTeamRosters,
     router,
     showLeaderboard,
     showMatches,
@@ -784,22 +941,58 @@ export function EventManagementClient({
   function resetMatchForm() {
     setMatchFormState(EMPTY_MATCH_FORM_STATE);
     setEditingMatchId(null);
+    setMatchEditNoticeMessage(null);
   }
 
   function startEditingMatch(match: MatchRecord) {
+    const normalizedMapRef = match.mapRef.trim();
+    const playedAtValue = toDatetimeLocalValue(match.playedAt);
+    const fallbackPlayedAt = toDatetimeLocalValue(new Date().toISOString());
+    const hasInvalidPlayedAt = playedAtValue.length === 0;
+    const hasMissingMapRef = normalizedMapRef.length === 0;
+    const hasLegacyMapRef =
+      normalizedMapRef.length > 0 &&
+      maps.length > 0 &&
+      !maps.some((mapEntry) => mapEntry.key === normalizedMapRef);
+    const notices: string[] = [];
+
+    if (hasInvalidPlayedAt) {
+      notices.push(
+        `Played At (${match.playedAt || "missing value"}) is legacy/invalid. Using current date-time as a safe fallback.`,
+      );
+    }
+    if (hasMissingMapRef) {
+      notices.push("Map is missing for this match. Select a map before saving.");
+    } else if (hasLegacyMapRef) {
+      notices.push(
+        `Map ${normalizedMapRef} is not in active maps. Legacy value is preserved until you choose a replacement.`,
+      );
+    }
+
     setEditingMatchId(match.id);
     setMatchSuccessMessage(null);
     setMatchErrorMessage(null);
+    setMatchEditNoticeMessage(notices.length > 0 ? notices.join(" ") : null);
     setMatchFormState({
       homeTeamId: match.homeTeamId,
       awayTeamId: match.awayTeamId,
-      playedAt: toDatetimeLocalValue(match.playedAt),
+      mapRef: normalizedMapRef,
+      playedAt: playedAtValue || fallbackPlayedAt,
       status: match.status,
       homeScore: String(match.homeScore),
       awayScore: String(match.awayScore),
-      homeRoundDiff: String(match.homeRoundDiff),
-      awayRoundDiff: String(match.awayRoundDiff),
     });
+    if (typeof window !== "undefined") {
+      const focusAndScrollToMatchForm = () => {
+        matchFormRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+        matchPrimaryFieldRef.current?.focus({ preventScroll: true });
+      };
+
+      window.requestAnimationFrame(() => {
+        focusAndScrollToMatchForm();
+        window.setTimeout(focusAndScrollToMatchForm, 150);
+      });
+    }
   }
 
   function resetPlayerStatForm() {
@@ -811,16 +1004,17 @@ export function EventManagementClient({
     setEditingPlayerStatId(playerStat.id);
     setPlayerStatsSuccessMessage(null);
     setPlayerStatsErrorMessage(null);
+    const selectedMatch = playerStat.matchId
+      ? visibleMatches.find((match) => match.id === playerStat.matchId)
+      : null;
     setPlayerStatFormState({
       playerId: playerStat.playerId,
       teamId: playerStat.teamId,
       matchId: playerStat.matchId ?? "",
-      mapRef: playerStat.mapRef ?? "",
+      mapRef: selectedMatch?.mapRef ?? playerStat.mapRef ?? "",
       kills: String(playerStat.kills),
       deaths: String(playerStat.deaths),
       assists: String(playerStat.assists),
-      matchesPlayed: String(playerStat.matchesPlayed),
-      mapsPlayed: String(playerStat.mapsPlayed),
     });
   }
 
@@ -832,9 +1026,28 @@ export function EventManagementClient({
       return;
     }
 
-    const editingMatch = editingMatchId
-      ? visibleMatches.find((entry) => entry.id === editingMatchId)
+    const currentEditingMatchId = editingMatchId;
+    const editingMatch = currentEditingMatchId
+      ? matches.find((entry) => entry.id === currentEditingMatchId) ?? null
       : null;
+
+    if (currentEditingMatchId && (!editingMatch || editingMatch.eventId !== activeEventId)) {
+      setMatchErrorMessage("Selected match is unavailable. Select it again and retry.");
+      resetMatchForm();
+      return;
+    }
+
+    const normalizedMapRef = matchFormState.mapRef.trim();
+    if (!normalizedMapRef) {
+      setMatchErrorMessage("Selected match has no map assigned. Choose a map before saving.");
+      return;
+    }
+
+    const playedAtDate = new Date(matchFormState.playedAt);
+    if (Number.isNaN(playedAtDate.getTime())) {
+      setMatchErrorMessage("Played At is invalid. Choose a valid date and time before saving.");
+      return;
+    }
 
     setIsMatchSubmitting(true);
     setMatchErrorMessage(null);
@@ -845,23 +1058,22 @@ export function EventManagementClient({
         eventId: activeEventId,
         homeTeamId: matchFormState.homeTeamId,
         awayTeamId: matchFormState.awayTeamId,
-        playedAt: toIsoValue(matchFormState.playedAt),
+        mapRef: normalizedMapRef,
+        playedAt: playedAtDate.toISOString(),
         status: matchFormState.status,
         homeScore: Number(matchFormState.homeScore),
         awayScore: Number(matchFormState.awayScore),
-        homeRoundDiff: Number(matchFormState.homeRoundDiff),
-        awayRoundDiff: Number(matchFormState.awayRoundDiff),
       };
 
       const response = await fetch(
-        editingMatch ? "/api/admin/matches/update" : "/api/admin/matches",
+        currentEditingMatchId ? "/api/admin/matches/update" : "/api/admin/matches",
         {
-          method: editingMatch ? "PATCH" : "POST",
+          method: currentEditingMatchId ? "PATCH" : "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(
-            editingMatch
+            currentEditingMatchId
               ? {
-                  matchId: editingMatch.id,
+                  matchId: currentEditingMatchId,
                   ...payload,
                 }
               : payload,
@@ -903,7 +1115,7 @@ export function EventManagementClient({
       setStandings(nextStandings);
       setStandingsErrorMessage(null);
 
-      setMatchSuccessMessage(editingMatch ? "Match updated." : "Match saved.");
+      setMatchSuccessMessage(currentEditingMatchId ? "Match updated." : "Match saved.");
       resetMatchForm();
     } catch (error) {
       if (applyAdminGuardRedirect(router, error)) {
@@ -928,6 +1140,29 @@ export function EventManagementClient({
       return;
     }
 
+    const selectedMatch = visibleMatches.find(
+      (match) => match.id === playerStatFormState.matchId,
+    );
+    if (!selectedMatch) {
+      setPlayerStatsErrorMessage("Selected match is unavailable. Pick a valid Match ID.");
+      return;
+    }
+
+    const selectedMatchMapRef = selectedMatch.mapRef.trim();
+    if (!selectedMatchMapRef) {
+      setPlayerStatsErrorMessage(
+        "Selected match has no map assigned. Update the match before saving player stats.",
+      );
+      return;
+    }
+
+    if (!maps.some((mapEntry) => mapEntry.key === selectedMatchMapRef)) {
+      setPlayerStatsErrorMessage(
+        `Selected match map (${selectedMatchMapRef}) is not in active maps. Update the match map first.`,
+      );
+      return;
+    }
+
     const editingPlayerStat = editingPlayerStatId
       ? visiblePlayerStats.find((entry) => entry.id === editingPlayerStatId)
       : null;
@@ -941,13 +1176,11 @@ export function EventManagementClient({
         eventId: activeEventId,
         playerId: playerStatFormState.playerId,
         teamId: playerStatFormState.teamId,
-        matchId: playerStatFormState.matchId.trim() || undefined,
-        mapRef: playerStatFormState.mapRef.trim() || undefined,
+        matchId: playerStatFormState.matchId,
+        mapRef: selectedMatchMapRef,
         kills: Number(playerStatFormState.kills),
         deaths: Number(playerStatFormState.deaths),
         assists: Number(playerStatFormState.assists),
-        matchesPlayed: Number(playerStatFormState.matchesPlayed),
-        mapsPlayed: Number(playerStatFormState.mapsPlayed),
       };
 
       const response = await fetch(
@@ -1205,13 +1438,21 @@ export function EventManagementClient({
 
     if (!eventId) {
       setMatches([]);
+      setApprovedTeams([]);
+      setMaps([]);
       setStandings([]);
       setPlayerStats([]);
       setMvpSummary(null);
       return;
     }
 
-    if (showMatches) {
+    if (showMatches || showPlayerStats) {
+      void refreshTeamRosters(eventId);
+    }
+    if (showMatches || showPlayerStats) {
+      void refreshMapOptions();
+    }
+    if (showMatches || showPlayerStats) {
       void refreshMatches(eventId);
     }
     if (showLeaderboard) {
@@ -1561,7 +1802,10 @@ export function EventManagementClient({
             {showMatches ? (
               <button
                 type="button"
-                onClick={() => void refreshMatches(activeEventId)}
+                onClick={() => {
+                  void refreshMatches(activeEventId);
+                  void refreshTeamRosters(activeEventId);
+                }}
                 disabled={!activeEventId || isMatchesLoading}
                 className="rounded-md border border-zinc-300 px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-70 dark:border-zinc-700"
               >
@@ -1668,12 +1912,24 @@ export function EventManagementClient({
                 {matchSuccessMessage}
               </p>
             ) : null}
+            {editingMatchId ? (
+              <p className="mt-4 rounded-md border border-sky-200 bg-sky-50 p-3 text-sm text-sky-800 dark:border-sky-900/60 dark:bg-sky-950/40 dark:text-sky-200">
+                <span className="font-medium">Editing match {editingMatchId}.</span>{" "}
+                {matchEditNoticeMessage ??
+                  "The selected match card is highlighted below. Update fields, then save or cancel edit."}
+              </p>
+            ) : null}
 
-            <form onSubmit={(event) => void submitMatchForm(event)} className="mt-4 space-y-4">
+            <form
+              ref={matchFormRef}
+              onSubmit={(event) => void submitMatchForm(event)}
+              className="mt-4 space-y-4"
+            >
           <div className="grid gap-4 sm:grid-cols-2">
             <label className="space-y-1 text-sm">
               <span className="text-zinc-600 dark:text-zinc-300">Home Team ID</span>
-              <input
+              <select
+                ref={matchPrimaryFieldRef}
                 required
                 value={matchFormState.homeTeamId}
                 onChange={(event) =>
@@ -1682,12 +1938,26 @@ export function EventManagementClient({
                     homeTeamId: event.target.value,
                   }))
                 }
+                disabled={matchTeamOptions.length === 0}
                 className="w-full rounded-md border border-zinc-300 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-950"
-              />
+              >
+                <option value="">Select home team</option>
+                {matchTeamOptions.map((team) => (
+                  <option key={`home-${team.id}`} value={team.id}>
+                    {team.name} ({team.id})
+                  </option>
+                ))}
+                {matchFormState.homeTeamId &&
+                !matchTeamOptions.some((team) => team.id === matchFormState.homeTeamId) ? (
+                  <option value={matchFormState.homeTeamId}>
+                    Unknown Team ({matchFormState.homeTeamId})
+                  </option>
+                ) : null}
+              </select>
             </label>
             <label className="space-y-1 text-sm">
               <span className="text-zinc-600 dark:text-zinc-300">Away Team ID</span>
-              <input
+              <select
                 required
                 value={matchFormState.awayTeamId}
                 onChange={(event) =>
@@ -1696,8 +1966,22 @@ export function EventManagementClient({
                     awayTeamId: event.target.value,
                   }))
                 }
+                disabled={matchTeamOptions.length === 0}
                 className="w-full rounded-md border border-zinc-300 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-950"
-              />
+              >
+                <option value="">Select away team</option>
+                {matchTeamOptions.map((team) => (
+                  <option key={`away-${team.id}`} value={team.id}>
+                    {team.name} ({team.id})
+                  </option>
+                ))}
+                {matchFormState.awayTeamId &&
+                !matchTeamOptions.some((team) => team.id === matchFormState.awayTeamId) ? (
+                  <option value={matchFormState.awayTeamId}>
+                    Unknown Team ({matchFormState.awayTeamId})
+                  </option>
+                ) : null}
+              </select>
             </label>
             <label className="space-y-1 text-sm">
               <span className="text-zinc-600 dark:text-zinc-300">Played At</span>
@@ -1713,6 +1997,34 @@ export function EventManagementClient({
                 }
                 className="w-full rounded-md border border-zinc-300 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-950"
               />
+            </label>
+            <label className="space-y-1 text-sm">
+              <span className="text-zinc-600 dark:text-zinc-300">Map</span>
+              <select
+                required
+                value={matchFormState.mapRef}
+                onChange={(event) =>
+                  setMatchFormState((current) => ({
+                    ...current,
+                    mapRef: event.target.value,
+                  }))
+                }
+                disabled={maps.length === 0}
+                className="w-full rounded-md border border-zinc-300 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-950"
+              >
+                <option value="">Select map</option>
+                {maps.map((mapEntry) => (
+                  <option key={mapEntry.id} value={mapEntry.key}>
+                    {mapEntry.name}
+                  </option>
+                ))}
+                {matchFormState.mapRef &&
+                !maps.some((mapEntry) => mapEntry.key === matchFormState.mapRef) ? (
+                  <option value={matchFormState.mapRef}>
+                    Unknown Map ({matchFormState.mapRef})
+                  </option>
+                ) : null}
+              </select>
             </label>
             <label className="space-y-1 text-sm">
               <span className="text-zinc-600 dark:text-zinc-300">Status</span>
@@ -1767,39 +2079,10 @@ export function EventManagementClient({
                 className="w-full rounded-md border border-zinc-300 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-950"
               />
             </label>
-            <label className="space-y-1 text-sm">
-              <span className="text-zinc-600 dark:text-zinc-300">Home Round Diff</span>
-              <input
-                required
-                step={1}
-                type="number"
-                value={matchFormState.homeRoundDiff}
-                onChange={(event) =>
-                  setMatchFormState((current) => ({
-                    ...current,
-                    homeRoundDiff: event.target.value,
-                  }))
-                }
-                className="w-full rounded-md border border-zinc-300 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-950"
-              />
-            </label>
-            <label className="space-y-1 text-sm">
-              <span className="text-zinc-600 dark:text-zinc-300">Away Round Diff</span>
-              <input
-                required
-                step={1}
-                type="number"
-                value={matchFormState.awayRoundDiff}
-                onChange={(event) =>
-                  setMatchFormState((current) => ({
-                    ...current,
-                    awayRoundDiff: event.target.value,
-                  }))
-                }
-                className="w-full rounded-md border border-zinc-300 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-950"
-              />
-            </label>
           </div>
+          <p className="text-xs text-zinc-500">
+            Round diff is auto-calculated from scores when saving.
+          </p>
 
           <div className="flex flex-wrap items-center gap-2">
             <button
@@ -1839,38 +2122,63 @@ export function EventManagementClient({
             </p>
           ) : null}
           <div className="grid gap-3">
-            {visibleMatches.map((match) => (
-              <article
-                key={match.id}
-                className="rounded-lg border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-700 dark:bg-zinc-950"
-              >
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <p className="font-mono text-xs text-zinc-500 break-all">{match.id}</p>
-                  <p className="rounded-full bg-zinc-100 px-2 py-1 text-xs font-semibold uppercase text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
-                    {formatMatchStatus(match.status)}
+            {visibleMatches.map((match) => {
+              const isEditingMatch = editingMatchId === match.id;
+
+              return (
+                <article
+                  key={match.id}
+                  className={`rounded-lg border p-4 ${
+                    isEditingMatch
+                      ? "border-sky-400 bg-sky-50 ring-2 ring-sky-200 dark:border-sky-500 dark:bg-sky-950/30 dark:ring-sky-900/60"
+                      : "border-zinc-200 bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-950"
+                  }`}
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="font-mono text-xs text-zinc-500 break-all">{match.id}</p>
+                    <div className="flex items-center gap-2">
+                      {isEditingMatch ? (
+                        <p className="rounded-full bg-sky-100 px-2 py-1 text-xs font-semibold uppercase text-sky-700 dark:bg-sky-900/60 dark:text-sky-200">
+                          Editing
+                        </p>
+                      ) : null}
+                      <p className="rounded-full bg-zinc-100 px-2 py-1 text-xs font-semibold uppercase text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
+                        {formatMatchStatus(match.status)}
+                      </p>
+                    </div>
+                  </div>
+                  <p className="mt-2 text-sm font-medium">
+                    {match.homeTeamId} vs {match.awayTeamId}
                   </p>
-                </div>
-                <p className="mt-2 text-sm font-medium">
-                  {match.homeTeamId} vs {match.awayTeamId}
-                </p>
-                <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-300">
-                  Played: {new Date(match.playedAt).toLocaleString()}
-                </p>
-                <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-300">
-                  Score {match.homeScore}-{match.awayScore} | Round Diff{" "}
-                  {match.homeRoundDiff}/{match.awayRoundDiff}
-                </p>
-                <div className="mt-3">
-                  <button
-                    type="button"
-                    onClick={() => startEditingMatch(match)}
-                    className="rounded-md border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-700"
-                  >
-                    Edit Match
-                  </button>
-                </div>
-              </article>
-            ))}
+                  <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-300">
+                    Played: {new Date(match.playedAt).toLocaleString()}
+                  </p>
+                  <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-300">
+                    Map:{" "}
+                    {mapNameByKey.get(match.mapRef)
+                      ? `${mapNameByKey.get(match.mapRef)} (${match.mapRef})`
+                      : `Unknown Map (${match.mapRef})`}
+                  </p>
+                  <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-300">
+                    Score {match.homeScore}-{match.awayScore} | Round Diff{" "}
+                    {match.homeRoundDiff}/{match.awayRoundDiff}
+                  </p>
+                  <div className="mt-3">
+                    <button
+                      type="button"
+                      onClick={() => startEditingMatch(match)}
+                      className={`rounded-md border px-3 py-2 text-sm ${
+                        isEditingMatch
+                          ? "border-sky-300 bg-sky-100 text-sky-800 dark:border-sky-700 dark:bg-sky-900/40 dark:text-sky-100"
+                          : "border-zinc-300 dark:border-zinc-700"
+                      }`}
+                    >
+                      {isEditingMatch ? "Editing Match" : "Edit Match"}
+                    </button>
+                  </div>
+                </article>
+              );
+            })}
           </div>
             </div>
           </>
@@ -2179,7 +2487,7 @@ export function EventManagementClient({
             <div className="grid gap-4 sm:grid-cols-2">
               <label className="space-y-1 text-sm">
                 <span className="text-zinc-600 dark:text-zinc-300">Player ID</span>
-                <input
+                <select
                   required
                   value={playerStatFormState.playerId}
                   onChange={(event) =>
@@ -2188,48 +2496,119 @@ export function EventManagementClient({
                       playerId: event.target.value,
                     }))
                   }
+                  disabled={!playerStatFormState.teamId || selectedTeamPlayers.length === 0}
                   className="w-full rounded-md border border-zinc-300 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-950"
-                />
+                >
+                  <option value="">Select player</option>
+                  {selectedTeamPlayers.map((player) => (
+                    <option key={player.id} value={player.id}>
+                      {player.name} ({player.id})
+                    </option>
+                  ))}
+                  {playerStatFormState.playerId &&
+                  !selectedTeamPlayers.some(
+                    (player) => player.id === playerStatFormState.playerId,
+                  ) ? (
+                    <option value={playerStatFormState.playerId}>
+                      Unknown Player ({playerStatFormState.playerId})
+                    </option>
+                  ) : null}
+                </select>
               </label>
               <label className="space-y-1 text-sm">
                 <span className="text-zinc-600 dark:text-zinc-300">Team ID</span>
-                <input
+                <select
                   required
                   value={playerStatFormState.teamId}
                   onChange={(event) =>
-                    setPlayerStatFormState((current) => ({
-                      ...current,
-                      teamId: event.target.value,
-                    }))
+                    setPlayerStatFormState((current) => {
+                      const nextTeamId = event.target.value;
+                      const nextTeam = approvedTeams.find((team) => team.id === nextTeamId);
+                      const nextPlayers = nextTeam?.players ?? [];
+
+                      return {
+                        ...current,
+                        teamId: nextTeamId,
+                        playerId: nextPlayers.some((player) => player.id === current.playerId)
+                          ? current.playerId
+                          : "",
+                      };
+                    })
                   }
+                  disabled={approvedTeams.length === 0}
                   className="w-full rounded-md border border-zinc-300 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-950"
-                />
+                >
+                  <option value="">Select team</option>
+                  {approvedTeams.map((team) => (
+                    <option key={team.id} value={team.id}>
+                      {team.teamName} ({team.id})
+                    </option>
+                  ))}
+                  {playerStatFormState.teamId &&
+                  !approvedTeams.some((team) => team.id === playerStatFormState.teamId) ? (
+                    <option value={playerStatFormState.teamId}>
+                      Unknown Team ({playerStatFormState.teamId})
+                    </option>
+                  ) : null}
+                </select>
               </label>
               <label className="space-y-1 text-sm">
-                <span className="text-zinc-600 dark:text-zinc-300">Match ID (optional)</span>
-                <input
+                <span className="text-zinc-600 dark:text-zinc-300">Match ID</span>
+                <select
+                  required
                   value={playerStatFormState.matchId}
                   onChange={(event) =>
-                    setPlayerStatFormState((current) => ({
-                      ...current,
-                      matchId: event.target.value,
-                    }))
+                    setPlayerStatFormState((current) => {
+                      const nextMatchId = event.target.value;
+                      const nextMatch = visibleMatches.find((match) => match.id === nextMatchId);
+
+                      return {
+                        ...current,
+                        matchId: nextMatchId,
+                        mapRef: nextMatch?.mapRef ?? "",
+                      };
+                    })
                   }
+                  disabled={visibleMatches.length === 0}
                   className="w-full rounded-md border border-zinc-300 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-950"
-                />
+                >
+                  <option value="">Select match</option>
+                  {visibleMatches.map((match) => (
+                    <option key={match.id} value={match.id}>
+                      {match.id} - {match.homeTeamId} vs {match.awayTeamId} ({new Date(match.playedAt).toLocaleDateString()})
+                    </option>
+                  ))}
+                  {playerStatFormState.matchId &&
+                  !visibleMatches.some((match) => match.id === playerStatFormState.matchId) ? (
+                    <option value={playerStatFormState.matchId}>
+                      Unknown Match ({playerStatFormState.matchId})
+                    </option>
+                  ) : null}
+                </select>
               </label>
               <label className="space-y-1 text-sm">
-                <span className="text-zinc-600 dark:text-zinc-300">Map Ref (optional)</span>
+                <span className="text-zinc-600 dark:text-zinc-300">Map</span>
                 <input
-                  value={playerStatFormState.mapRef}
-                  onChange={(event) =>
-                    setPlayerStatFormState((current) => ({
-                      ...current,
-                      mapRef: event.target.value,
-                    }))
-                  }
+                  readOnly
+                  type="text"
+                  value={selectedPlayerStatMapRef}
+                  placeholder="Select a match to auto-fill map"
+                  disabled
                   className="w-full rounded-md border border-zinc-300 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-950"
                 />
+                <p
+                  className={`text-xs ${
+                    selectedPlayerStatMapError
+                      ? "text-red-600"
+                      : "text-zinc-500 dark:text-zinc-400"
+                  }`}
+                >
+                  {selectedPlayerStatMapError
+                    ? selectedPlayerStatMapError
+                    : selectedPlayerStatMapLabel
+                      ? `Locked to match map: ${selectedPlayerStatMapLabel}`
+                      : "Map is locked and auto-filled from the selected match."}
+                </p>
               </label>
               <label className="space-y-1 text-sm">
                 <span className="text-zinc-600 dark:text-zinc-300">Kills</span>
@@ -2282,45 +2661,11 @@ export function EventManagementClient({
                   className="w-full rounded-md border border-zinc-300 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-950"
                 />
               </label>
-              <label className="space-y-1 text-sm">
-                <span className="text-zinc-600 dark:text-zinc-300">Matches Played</span>
-                <input
-                  required
-                  min={0}
-                  step={1}
-                  type="number"
-                  value={playerStatFormState.matchesPlayed}
-                  onChange={(event) =>
-                    setPlayerStatFormState((current) => ({
-                      ...current,
-                      matchesPlayed: event.target.value,
-                    }))
-                  }
-                  className="w-full rounded-md border border-zinc-300 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-950"
-                />
-              </label>
-              <label className="space-y-1 text-sm">
-                <span className="text-zinc-600 dark:text-zinc-300">Maps Played</span>
-                <input
-                  required
-                  min={0}
-                  step={1}
-                  type="number"
-                  value={playerStatFormState.mapsPlayed}
-                  onChange={(event) =>
-                    setPlayerStatFormState((current) => ({
-                      ...current,
-                      mapsPlayed: event.target.value,
-                    }))
-                  }
-                  className="w-full rounded-md border border-zinc-300 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-950"
-                />
-              </label>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <button
                 type="submit"
-                disabled={!activeEventId || isPlayerStatSubmitting}
+                disabled={!activeEventId || isPlayerStatSubmitting || Boolean(selectedPlayerStatMapError)}
                 className="rounded-md bg-zinc-900 px-4 py-2 text-sm text-white disabled:cursor-not-allowed disabled:opacity-70 dark:bg-zinc-100 dark:text-zinc-900"
               >
                 {isPlayerStatSubmitting
@@ -2379,7 +2724,7 @@ export function EventManagementClient({
                       Maps
                     </th>
                     <th className="px-3 py-2 text-left font-medium text-zinc-600 dark:text-zinc-300">
-                      Match Ref
+                      Match ID
                     </th>
                     <th className="px-3 py-2 text-left font-medium text-zinc-600 dark:text-zinc-300">
                       Map Ref

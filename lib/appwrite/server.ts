@@ -38,6 +38,7 @@ export function getAppwriteCollections() {
     teamStatsCollectionId: env.APPWRITE_TEAM_STATS_COLLECTION_ID,
     playerStatsCollectionId: env.APPWRITE_PLAYER_STATS_COLLECTION_ID,
     mvpCollectionId: env.APPWRITE_MVP_COLLECTION_ID,
+    mapsCollectionId: env.APPWRITE_MAPS_COLLECTION_ID,
     adminAuditLogsCollectionId: env.APPWRITE_ADMIN_AUDIT_LOGS_COLLECTION_ID,
   };
 }

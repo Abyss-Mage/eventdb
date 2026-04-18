@@ -1,56 +1,31 @@
 "use client";
 
-import { FormEvent, ReactNode, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useMemo, useState } from "react";
+import Link from "next/link";
 
-import {
-  soloRegistrationSchema,
-  teamRegistrationSchema,
-} from "@/lib/domain/schemas";
-import type {
-  PlayerRank,
-  PlayerRole,
-  SoloRegistrationInput,
-  TeamPlayerInput,
-  TeamRegistrationInput,
-} from "@/lib/domain/types";
-import {
-  ChoiceCard,
-  cx,
-  FormField,
-  StatusMessage,
-  SurfacePanel,
-} from "@/app/ui/foundation";
+import { soloRegistrationSchema, teamRegistrationSchema } from "@/lib/domain/schemas";
+import type { PlayerRank, PlayerRole, TeamPlayerInput } from "@/lib/domain/types";
+import styles from "./register.module.css";
 
 type ApiEnvelope<T> =
   | { success: true; data: T }
   | { success: false; error: string };
 
-type SubmissionMessage = {
-  tone: "success" | "error";
-  text: string;
-};
+type RegistrationMode = "solo" | "team";
 
-type RegistrationMode = "chooser" | "team" | "solo";
-type TeamPlayerForm = TeamPlayerInput;
 type RegisterFormsProps = {
   eventId: string;
   registrationToken: string;
-  lockMode?: Exclude<RegistrationMode, "chooser">;
+  lockMode?: RegistrationMode;
 };
-type RegistrationFormHeaderProps = {
-  eyebrow: string;
-  title: string;
-  description?: ReactNode;
-  backLabel?: string;
-  onBack?: () => void;
+
+type TeamPlayerForm = TeamPlayerInput & {
+  isCaptain: boolean;
+  localId: string;
 };
-type RegistrationFormSectionProps = {
-  title?: string;
-  meta?: ReactNode;
-  className?: string;
-  children: ReactNode;
-};
+
+const MIN_TEAM_PLAYERS = 2;
+const MAX_TEAM_PLAYERS = 6;
 
 const ROLE_OPTIONS: Array<{ value: PlayerRole; label: string }> = [
   { value: "duelist", label: "Duelist" },
@@ -59,6 +34,7 @@ const ROLE_OPTIONS: Array<{ value: PlayerRole; label: string }> = [
   { value: "sentinel", label: "Sentinel" },
   { value: "flex", label: "Flex" },
 ];
+
 const RANK_OPTIONS: Array<{ value: PlayerRank; label: string }> = [
   { value: "iron", label: "Iron" },
   { value: "bronze", label: "Bronze" },
@@ -73,10 +49,12 @@ const RANK_OPTIONS: Array<{ value: PlayerRank; label: string }> = [
 
 function createEmptyPlayer(): TeamPlayerForm {
   return {
+    localId: `player-${Math.random().toString(16).slice(2, 10)}`,
     name: "",
     riotId: "",
     discordId: "",
     role: "flex",
+    isCaptain: false,
   };
 }
 
@@ -85,116 +63,126 @@ function normalizedOptional(value: string): string | undefined {
   return next.length > 0 ? next : undefined;
 }
 
-function formatValidationIssues(issues: { message: string }[]) {
-  return Array.from(new Set(issues.map((issue) => issue.message)));
-}
-
-function RegistrationFormHeader({
-  eyebrow,
-  title,
-  description,
-  backLabel,
-  onBack,
-}: RegistrationFormHeaderProps) {
-  return (
-    <div className="registration-form-header">
-      <div className="space-y-2">
-        <p className="type-eyebrow">{eyebrow}</p>
-        <h2 className="type-title">{title}</h2>
-        {description ? <p className="text-sm text-muted">{description}</p> : null}
-      </div>
-      {onBack && backLabel ? (
-        <button
-          type="button"
-          onClick={onBack}
-          className="btn-base btn-ghost px-3 py-1.5 text-xs"
-        >
-          {backLabel}
-        </button>
-      ) : null}
-    </div>
-  );
-}
-
-function RegistrationFormSection({
-  title,
-  meta,
-  className,
-  children,
-}: RegistrationFormSectionProps) {
-  return (
-    <section className={cx("registration-form-section", className)}>
-      {title || meta ? (
-        <div className="registration-form-section-head">
-          {title ? <h3 className="type-eyebrow">{title}</h3> : null}
-          {meta ? <div className="type-body-sm text-muted">{meta}</div> : null}
-        </div>
-      ) : null}
-      <div className="registration-form-section-frame">{children}</div>
-    </section>
-  );
-}
-
-function ValidationIssueList({ issues }: { issues: string[] }) {
-  if (issues.length === 0) {
-    return null;
+function toRole(value: string): PlayerRole {
+  const normalized = value.toLowerCase().trim();
+  if (
+    normalized === "duelist" ||
+    normalized === "controller" ||
+    normalized === "initiator" ||
+    normalized === "sentinel" ||
+    normalized === "flex"
+  ) {
+    return normalized;
   }
-
-  return (
-    <ul className="registration-validation-list text-sm text-danger">
-      {issues.map((message) => (
-        <li key={message}>• {message}</li>
-      ))}
-    </ul>
-  );
+  return "flex";
 }
 
-export function RegisterForms({
-  eventId,
-  registrationToken,
-  lockMode,
-}: RegisterFormsProps) {
-  const router = useRouter();
-  const [mode, setMode] = useState<RegistrationMode>(lockMode ?? "chooser");
+export function RegisterForms({ eventId, registrationToken, lockMode }: RegisterFormsProps) {
+  const [mode, setMode] = useState<RegistrationMode>(lockMode ?? "solo");
+  const [teamStep, setTeamStep] = useState<1 | 2>(1);
 
   const [teamName, setTeamName] = useState("");
-  const [captainDiscordId, setCaptainDiscordId] = useState("");
-  const [teamEmail, setTeamEmail] = useState("");
-  const [teamLogoUrl, setTeamLogoUrl] = useState("");
   const [teamTag, setTeamTag] = useState("");
-  const [players, setPlayers] = useState<TeamPlayerForm[]>(
-    Array.from({ length: 2 }, createEmptyPlayer),
+  const [teamLogoUrl, setTeamLogoUrl] = useState("");
+  const [captainDiscordId, setCaptainDiscordId] = useState("");
+  const [players, setPlayers] = useState<TeamPlayerForm[]>(() =>
+    Array.from({ length: MIN_TEAM_PLAYERS }, (_, index) => ({
+      ...createEmptyPlayer(),
+      isCaptain: index === 0,
+    })),
   );
+  const [teamErrors, setTeamErrors] = useState<string[]>([]);
   const [teamSubmitting, setTeamSubmitting] = useState(false);
-  const [teamMessage, setTeamMessage] = useState<SubmissionMessage | null>(null);
+  const [teamSuccess, setTeamSuccess] = useState<string | null>(null);
+  const [teamApiError, setTeamApiError] = useState<string | null>(null);
 
-  const [soloPlayer, setSoloPlayer] = useState<SoloRegistrationInput>({
-    name: "",
-    riotId: "",
-    discordId: "",
-    preferredRole: "flex",
-    eventId: "",
-  });
-  const [soloEmail, setSoloEmail] = useState("");
+  const [soloName, setSoloName] = useState("");
+  const [soloDiscord, setSoloDiscord] = useState("");
+  const [soloRiot, setSoloRiot] = useState("");
+  const [soloRole, setSoloRole] = useState<PlayerRole>("flex");
+  const [soloCurrentRank, setSoloCurrentRank] = useState<PlayerRank | undefined>();
+  const [soloPeakRank, setSoloPeakRank] = useState<PlayerRank | undefined>();
+  const [soloErrors, setSoloErrors] = useState<string[]>([]);
   const [soloSubmitting, setSoloSubmitting] = useState(false);
-  const [soloMessage, setSoloMessage] = useState<SubmissionMessage | null>(null);
+  const [soloSuccess, setSoloSuccess] = useState<string | null>(null);
+  const [soloApiError, setSoloApiError] = useState<string | null>(null);
 
-  const canAddPlayer = players.length < 6;
-  const canRemovePlayer = players.length > 2;
   const querySuffix = useMemo(() => {
     const params = new URLSearchParams();
-    if (eventId) {
-      params.set("eventId", eventId);
+    if (eventId.trim()) {
+      params.set("eventId", eventId.trim());
     }
-    if (registrationToken) {
-      params.set("token", registrationToken);
+    if (registrationToken.trim()) {
+      params.set("token", registrationToken.trim());
     }
     const query = params.toString();
     return query ? `?${query}` : "";
   }, [eventId, registrationToken]);
 
-  const teamPayloadCandidate = useMemo(
-    (): TeamRegistrationInput => ({
+  function selectType(next: RegistrationMode) {
+    if (lockMode) {
+      return;
+    }
+    setMode(next);
+    setTeamApiError(null);
+    setSoloApiError(null);
+    setTeamSuccess(null);
+    setSoloSuccess(null);
+  }
+
+  function setCaptain(playerId: string) {
+    setPlayers((current) =>
+      current.map((player) => ({
+        ...player,
+        isCaptain: player.localId === playerId,
+      })),
+    );
+  }
+
+  function updatePlayer(playerId: string, patch: Partial<TeamPlayerForm>) {
+    setPlayers((current) =>
+      current.map((player) =>
+        player.localId === playerId ? { ...player, ...patch } : player,
+      ),
+    );
+  }
+
+  function addPlayer() {
+    setPlayers((current) => {
+      if (current.length >= MAX_TEAM_PLAYERS) {
+        return current;
+      }
+      return [...current, createEmptyPlayer()];
+    });
+  }
+
+  function removePlayer(playerId: string) {
+    setPlayers((current) => {
+      if (current.length <= MIN_TEAM_PLAYERS) {
+        return current;
+      }
+      const next = current.filter((player) => player.localId !== playerId);
+      if (!next.some((player) => player.isCaptain)) {
+        next[0] = { ...next[0], isCaptain: true };
+      }
+      return next;
+    });
+  }
+
+  function validateTeamStepOne() {
+    const errors: string[] = [];
+    if (!teamName.trim()) {
+      errors.push("Team name is required.");
+    }
+    if (!captainDiscordId.trim()) {
+      errors.push("Captain Discord ID is required.");
+    }
+    setTeamErrors(errors);
+    return errors.length === 0;
+  }
+
+  async function submitTeam() {
+    const payload = {
       teamName: teamName.trim(),
       captainDiscordId: captainDiscordId.trim(),
       players: players.map((player) => ({
@@ -205,635 +193,435 @@ export function RegisterForms({
       })),
       eventId,
       registrationToken: normalizedOptional(registrationToken),
-      email: normalizedOptional(teamEmail),
-      teamLogoUrl: normalizedOptional(teamLogoUrl),
       teamTag: normalizedOptional(teamTag),
-    }),
-    [
-      captainDiscordId,
-      eventId,
-      players,
-      registrationToken,
-      teamEmail,
-      teamLogoUrl,
-      teamName,
-      teamTag,
-    ],
-  );
-  const teamValidation = useMemo(
-    () => teamRegistrationSchema.safeParse(teamPayloadCandidate),
-    [teamPayloadCandidate],
-  );
-  const teamValidationMessages = useMemo(
-    () =>
-      teamValidation.success
-        ? []
-        : formatValidationIssues(teamValidation.error.issues),
-    [teamValidation],
-  );
+      teamLogoUrl: normalizedOptional(teamLogoUrl),
+    };
 
-  const soloPayloadCandidate = useMemo(
-    (): SoloRegistrationInput => ({
-      name: soloPlayer.name.trim(),
-      riotId: soloPlayer.riotId.trim(),
-      discordId: soloPlayer.discordId.trim(),
-      preferredRole: soloPlayer.preferredRole,
-      eventId,
-      registrationToken: normalizedOptional(registrationToken),
-      email: normalizedOptional(soloEmail),
-      currentRank: soloPlayer.currentRank,
-      peakRank: soloPlayer.peakRank,
-    }),
-    [eventId, registrationToken, soloEmail, soloPlayer],
-  );
-  const soloValidation = useMemo(
-    () => soloRegistrationSchema.safeParse(soloPayloadCandidate),
-    [soloPayloadCandidate],
-  );
-  const soloValidationMessages = useMemo(
-    () =>
-      soloValidation.success
-        ? []
-        : formatValidationIssues(soloValidation.error.issues),
-    [soloValidation],
-  );
-
-  const teamButtonText = teamSubmitting
-    ? "Submitting team..."
-    : "Submit Team Registration";
-  const soloButtonText = soloSubmitting
-    ? "Submitting player..."
-    : "Submit Solo Player Registration";
-  const backButtonLabel = lockMode ? "Back to options" : "Back";
-
-  function navigateToForm(nextMode: Exclude<RegistrationMode, "chooser">) {
-    router.push(`/register/${nextMode}${querySuffix}`);
-  }
-
-  function goBackToChooser() {
-    if (lockMode) {
-      router.push(`/register${querySuffix}`);
-      return;
+    const captainPlayerIndex = players.findIndex((player) => player.isCaptain);
+    if (
+      captainPlayerIndex >= 0 &&
+      !payload.players[captainPlayerIndex].discordId.trim() &&
+      captainDiscordId.trim()
+    ) {
+      payload.players[captainPlayerIndex] = {
+        ...payload.players[captainPlayerIndex],
+        discordId: captainDiscordId.trim(),
+      };
     }
-    setMode("chooser");
-  }
 
-  function updatePlayer(
-    index: number,
-    field: keyof TeamPlayerForm,
-    value: string,
-  ) {
-    setPlayers((current) =>
-      current.map((player, playerIndex) =>
-        playerIndex === index
-          ? {
-              ...player,
-              [field]: field === "role" ? (value as PlayerRole) : value,
-            }
-          : player,
-      ),
-    );
-  }
-
-  function addPlayerSlot() {
-    if (!canAddPlayer) {
-      return;
-    }
-    setPlayers((current) => [...current, createEmptyPlayer()]);
-  }
-
-  function removePlayerSlot(index: number) {
-    if (!canRemovePlayer) {
-      return;
-    }
-    setPlayers((current) => current.filter((_, playerIndex) => playerIndex !== index));
-  }
-
-  async function submitTeam(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setTeamMessage(null);
-
-    if (!teamValidation.success) {
-      const firstIssue = teamValidation.error.issues.at(0);
-      setTeamMessage({
-        tone: "error",
-        text: firstIssue?.message ?? "Invalid team registration payload.",
-      });
+    const parsed = teamRegistrationSchema.safeParse(payload);
+    if (!parsed.success) {
+      setTeamErrors(Array.from(new Set(parsed.error.issues.map((issue) => issue.message))));
       return;
     }
 
     setTeamSubmitting(true);
+    setTeamErrors([]);
+    setTeamApiError(null);
 
     try {
       const response = await fetch("/api/register/team", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(teamValidation.data),
+        body: JSON.stringify(parsed.data),
       });
-
-      const body = (await response.json()) as ApiEnvelope<{
-        registrationId: string;
-        status: "pending";
-      }>;
-
+      const body = (await response.json()) as ApiEnvelope<{ registrationId: string }>;
       if (!body.success) {
-        setTeamMessage({ tone: "error", text: body.error });
+        setTeamApiError(body.error);
         return;
       }
-
-      setTeamMessage({
-        tone: "success",
-        text: `Team submitted. Registration ID: ${body.data.registrationId}`,
-      });
-      setTeamName("");
-      setCaptainDiscordId("");
-      setTeamEmail("");
-      setTeamLogoUrl("");
-      setTeamTag("");
-      setPlayers(Array.from({ length: 2 }, createEmptyPlayer));
+      setTeamSuccess(JSON.stringify(parsed.data, null, 2));
     } catch {
-      setTeamMessage({
-        tone: "error",
-        text: "Unable to submit team registration. Please try again.",
-      });
+      setTeamApiError("Unable to submit team registration.");
     } finally {
       setTeamSubmitting(false);
     }
   }
 
-  async function submitSolo(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setSoloMessage(null);
+  async function submitSolo() {
+    const payload = {
+      name: soloName.trim(),
+      riotId: soloRiot.trim(),
+      discordId: soloDiscord.trim(),
+      preferredRole: soloRole,
+      eventId,
+      registrationToken: normalizedOptional(registrationToken),
+      currentRank: soloCurrentRank,
+      peakRank: soloPeakRank,
+    };
 
-    if (!soloValidation.success) {
-      const firstIssue = soloValidation.error.issues.at(0);
-      setSoloMessage({
-        tone: "error",
-        text: firstIssue?.message ?? "Invalid solo registration payload.",
-      });
+    const parsed = soloRegistrationSchema.safeParse(payload);
+    if (!parsed.success) {
+      setSoloErrors(Array.from(new Set(parsed.error.issues.map((issue) => issue.message))));
       return;
     }
 
     setSoloSubmitting(true);
+    setSoloErrors([]);
+    setSoloApiError(null);
 
     try {
       const response = await fetch("/api/register/solo", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(soloValidation.data),
+        body: JSON.stringify(parsed.data),
       });
-
-      const body = (await response.json()) as ApiEnvelope<{
-        registrationId: string;
-        status: "available";
-      }>;
-
+      const body = (await response.json()) as ApiEnvelope<{ registrationId: string }>;
       if (!body.success) {
-        setSoloMessage({ tone: "error", text: body.error });
+        setSoloApiError(body.error);
         return;
       }
-
-      setSoloMessage({
-        tone: "success",
-        text: `Solo player registration submitted. ID: ${body.data.registrationId}`,
-      });
-      setSoloPlayer({
-        name: "",
-        riotId: "",
-        discordId: "",
-        preferredRole: "flex",
-        eventId: "",
-      });
-      setSoloEmail("");
+      setSoloSuccess(JSON.stringify(parsed.data, null, 2));
     } catch {
-      setSoloMessage({
-        tone: "error",
-        text: "Unable to submit solo registration. Please try again.",
-      });
+      setSoloApiError("Unable to submit solo registration.");
     } finally {
       setSoloSubmitting(false);
     }
   }
 
-  if (mode === "chooser") {
-    return (
-      <SurfacePanel
-        variant="elevated"
-        className="registration-form-surface registration-form-surface--chooser space-y-5 p-4 sm:p-6"
-      >
-        <RegistrationFormHeader
-          eyebrow="Select Registration Type"
-          title="Start your submission"
-          description="Team registration supports 2-6 players. Solo registration adds players to the solo player pool for admin team assignment."
-        />
-
-        <div className="registration-choice-grid">
-          <ChoiceCard
-            title="Team Registration"
-            description="Register a full team with captain validation, role assignments, and up to six players."
-            meta="2-6 players"
-            onClick={() => navigateToForm("team")}
-            className="registration-choice-card"
-          />
-          <ChoiceCard
-            title="Solo Registration"
-            description="Register as a solo player with preferred role and optional rank details."
-            meta="Solo player pool"
-            onClick={() => navigateToForm("solo")}
-            className="registration-choice-card"
-          />
-        </div>
-      </SurfacePanel>
-    );
-  }
-
-  if (mode === "team") {
-    return (
-      <SurfacePanel
-        variant="elevated"
-        className="registration-form-surface border-red-300/40 p-4 sm:p-6 lg:p-7"
-      >
-        <form onSubmit={submitTeam} className="registration-form-content space-y-6">
-          <RegistrationFormHeader
-            eyebrow="Team Entry"
-            title="Team Registration Form // Match Ops"
-            description="Build a complete roster, assign roles, and submit your competitive lineup."
-            backLabel={backButtonLabel}
-            onBack={goBackToChooser}
-          />
-
-          <RegistrationFormSection title="Live status" className="space-y-3">
-            <div className="registration-form-status-grid">
-              <SurfacePanel variant="subtle" className="border-white/10 bg-slate-950/55 p-3">
-                <p className="text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-muted">
-                  Roster Cap
-                </p>
-                <p className="mt-1 text-sm font-semibold text-soft">{players.length}/6 Active</p>
-              </SurfacePanel>
-              <SurfacePanel variant="subtle" className="border-white/10 bg-slate-950/55 p-3">
-                <p className="text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-muted">
-                  Captain ID
-                </p>
-                <p className="mt-1 text-sm font-semibold text-soft">
-                  {captainDiscordId.trim() ? "Ready" : "Required"}
-                </p>
-              </SurfacePanel>
-              <SurfacePanel variant="subtle" className="border-white/10 bg-slate-950/55 p-3">
-                <p className="text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-muted">
-                  Validation
-                </p>
-                <p className="mt-1 text-sm font-semibold text-soft">
-                  {teamValidation.success ? "Green" : "Pending"}
-                </p>
-              </SurfacePanel>
-            </div>
-          </RegistrationFormSection>
-
-          <RegistrationFormSection title="Section 1: Team Intel" className="space-y-4">
-            <div className="grid gap-4 md:grid-cols-2">
-              <FormField label="Team Name">
-                <input
-                  value={teamName}
-                  onChange={(event) => setTeamName(event.target.value)}
-                  required
-                  className="input-control bg-slate-950/60"
-                />
-              </FormField>
-              <FormField label="Captain Discord ID">
-                <input
-                  value={captainDiscordId}
-                  onChange={(event) => setCaptainDiscordId(event.target.value)}
-                  required
-                  className="input-control bg-slate-950/60"
-                />
-              </FormField>
-              <FormField label="Email (optional)">
-                <input
-                  type="email"
-                  value={teamEmail}
-                  onChange={(event) => setTeamEmail(event.target.value)}
-                  className="input-control bg-slate-950/60"
-                />
-              </FormField>
-              <FormField label="Team Logo URL (optional)">
-                <input
-                  value={teamLogoUrl}
-                  onChange={(event) => setTeamLogoUrl(event.target.value)}
-                  className="input-control bg-slate-950/60"
-                />
-              </FormField>
-              <FormField label="Team Tag (optional, max 5 chars)">
-                <input
-                  value={teamTag}
-                  onChange={(event) => setTeamTag(event.target.value)}
-                  maxLength={5}
-                  className="input-control bg-slate-950/60"
-                />
-              </FormField>
-            </div>
-          </RegistrationFormSection>
-
-          <RegistrationFormSection
-            title="Section 2: Player Stack"
-            meta={`${players.length}/6 roster slots filled`}
-            className="space-y-4"
-          >
-            {players.map((player, index) => (
-              <SurfacePanel
-                key={`team-player-${index}`}
-                variant="subtle"
-                className="registration-player-card border-white/15 bg-slate-950/58 p-4"
-              >
-                <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-                  <div className="flex items-center gap-2">
-                    <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-full border border-red-300/50 bg-red-500/15 px-2 text-xs font-semibold text-red-100">
-                      {index + 1}
-                    </span>
-                    <h4 className="type-label">Player Slot</h4>
-                  </div>
-                  {canRemovePlayer ? (
-                    <button
-                      type="button"
-                      onClick={() => removePlayerSlot(index)}
-                      className="btn-base btn-danger px-2.5 py-1 text-xs"
-                    >
-                      Remove
-                    </button>
-                  ) : null}
-                </div>
-
-                <div className="grid gap-3 md:grid-cols-2">
-                  <input
-                    value={player.name}
-                    onChange={(event) =>
-                      updatePlayer(index, "name", event.target.value)
-                    }
-                    required
-                    placeholder="Player Name"
-                    className="input-control bg-slate-950/60"
-                  />
-                  <input
-                    value={player.riotId}
-                    onChange={(event) =>
-                      updatePlayer(index, "riotId", event.target.value)
-                    }
-                    required
-                    placeholder="Riot ID (Name#Tag)"
-                    className="input-control bg-slate-950/60"
-                  />
-                  <input
-                    value={player.discordId}
-                    onChange={(event) =>
-                      updatePlayer(index, "discordId", event.target.value)
-                    }
-                    required
-                    placeholder="Discord ID"
-                    className="input-control bg-slate-950/60"
-                  />
-                  <select
-                    value={player.role}
-                    onChange={(event) => updatePlayer(index, "role", event.target.value)}
-                    className="select-control bg-slate-950/60"
-                  >
-                    {ROLE_OPTIONS.map((role) => (
-                      <option key={role.value} value={role.value}>
-                        {role.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </SurfacePanel>
-            ))}
-
-            <div className="grid gap-2 md:grid-cols-[auto_1fr] md:items-center">
-              <button
-                type="button"
-                onClick={addPlayerSlot}
-                disabled={!canAddPlayer}
-                className="btn-base btn-secondary w-full disabled:opacity-60 md:w-auto"
-              >
-                Add Player
-              </button>
-              <p className="text-xs text-muted">
-                Minimum 2 players required. Maximum 6 roster slots.
-              </p>
-            </div>
-          </RegistrationFormSection>
-
-          <ValidationIssueList issues={teamValidationMessages} />
-
-          <div className="registration-form-action-bar">
-            <div className="registration-form-action-copy">
-              <p className="text-sm font-semibold text-soft">Ready to submit this team roster?</p>
-              <p className="text-xs text-muted">
-                Submission routes to /api/register/team with existing validation rules.
-              </p>
-            </div>
-            <button
-              type="submit"
-              disabled={teamSubmitting || !teamValidation.success}
-              className="btn-base btn-primary w-full md:min-w-56 md:w-auto"
-            >
-              {teamButtonText}
-            </button>
-          </div>
-
-          {teamMessage ? (
-            <StatusMessage
-              tone={teamMessage.tone === "success" ? "success" : "danger"}
-              className="mt-1"
-            >
-              {teamMessage.text}
-            </StatusMessage>
-          ) : null}
-        </form>
-      </SurfacePanel>
-    );
-  }
+  const playerCountFill = Math.min((players.length / MAX_TEAM_PLAYERS) * 100, 100);
 
   return (
-    <SurfacePanel
-      variant="elevated"
-      className="registration-form-surface border-blue-300/40 p-4 sm:p-6 lg:p-7"
-    >
-      <form onSubmit={submitSolo} className="registration-form-content space-y-6">
-        <RegistrationFormHeader
-          eyebrow="Solo Entry"
-          title="Solo Player Registration // Queue Intake"
-          description="Register your profile and role preference to join the assignment draft."
-          backLabel={backButtonLabel}
-          onBack={goBackToChooser}
-        />
+    <main className={styles.page}>
+      <nav className={styles.nav}>
+        <Link className={styles.navBrand} href="/">
+          Pub of Homies
+        </Link>
+        <ul className={styles.navLinks}>
+          <li><Link href="/">Home</Link></li>
+          <li><Link href="/event">Event</Link></li>
+          <li><Link href="/about">About</Link></li>
+          <li><Link href="/contact">Contact</Link></li>
+          <li><Link href="/wall-of-fame">Wall of Fame</Link></li>
+          <li><Link href="/leaderboard">Leaderboard</Link></li>
+          <li><Link className={styles.activeLink} href="/register">Register</Link></li>
+        </ul>
+      </nav>
 
-        <RegistrationFormSection title="Live status" className="space-y-3">
-          <div className="registration-form-status-grid">
-            <SurfacePanel variant="subtle" className="border-white/10 bg-slate-950/55 p-3">
-              <p className="text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-muted">
-                Role Preference
-              </p>
-              <p className="mt-1 text-sm font-semibold text-soft">
-                {soloPlayer.preferredRole}
-              </p>
-            </SurfacePanel>
-            <SurfacePanel variant="subtle" className="border-white/10 bg-slate-950/55 p-3">
-              <p className="text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-muted">
-                Queue Status
-              </p>
-              <p className="mt-1 text-sm font-semibold text-soft">
-                {soloValidation.success ? "Ready" : "Needs info"}
-              </p>
-            </SurfacePanel>
-            <SurfacePanel variant="subtle" className="border-white/10 bg-slate-950/55 p-3">
-              <p className="text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-muted">
-                Contact
-              </p>
-              <p className="mt-1 text-sm font-semibold text-soft">
-                {soloPlayer.discordId.trim() ? "Linked" : "Required"}
-              </p>
-            </SurfacePanel>
-          </div>
-        </RegistrationFormSection>
+      <section className={styles.pageHeader}>
+        <p className={styles.headerEyebrow}>Season 1 · Valorant</p>
+        <h1>Join the League</h1>
+        <p>Choose your registration type and forge your legacy.</p>
+      </section>
 
-        <RegistrationFormSection title="Player Profile" className="space-y-4">
-          <div className="grid gap-3 md:grid-cols-2">
-            <FormField label="Player Name">
-              <input
-                value={soloPlayer.name}
-                onChange={(event) =>
-                  setSoloPlayer((current) => ({
-                    ...current,
-                    name: event.target.value,
-                  }))
-                }
-                required
-                className="input-control bg-slate-950/60"
-              />
-            </FormField>
-            <FormField label="Riot ID">
-              <input
-                value={soloPlayer.riotId}
-                onChange={(event) =>
-                  setSoloPlayer((current) => ({
-                    ...current,
-                    riotId: event.target.value,
-                  }))
-                }
-                required
-                placeholder="Name#Tag"
-                className="input-control bg-slate-950/60"
-              />
-            </FormField>
-            <FormField label="Discord ID">
-              <input
-                value={soloPlayer.discordId}
-                onChange={(event) =>
-                  setSoloPlayer((current) => ({
-                    ...current,
-                    discordId: event.target.value,
-                  }))
-                }
-                required
-                className="input-control bg-slate-950/60"
-              />
-            </FormField>
-            <FormField label="Preferred Role">
-              <select
-                value={soloPlayer.preferredRole}
-                onChange={(event) =>
-                  setSoloPlayer((current) => ({
-                    ...current,
-                    preferredRole: event.target.value as PlayerRole,
-                    }))
-                }
-                className="select-control bg-slate-950/60"
-              >
-                {ROLE_OPTIONS.map((role) => (
-                  <option key={role.value} value={role.value}>
-                    {role.label}
-                  </option>
-                ))}
-              </select>
-            </FormField>
-            <FormField label="Email (optional)">
-              <input
-                type="email"
-                value={soloEmail}
-                onChange={(event) => setSoloEmail(event.target.value)}
-                className="input-control bg-slate-950/60"
-              />
-            </FormField>
-            <FormField label="Current Rank (optional)">
-              <select
-                value={soloPlayer.currentRank ?? ""}
-                onChange={(event) =>
-                  setSoloPlayer((current) => ({
-                    ...current,
-                    currentRank: event.target.value
-                      ? (event.target.value as PlayerRank)
-                      : undefined,
-                  }))
-                }
-                className="select-control bg-slate-950/60"
-              >
-                <option value="">Not specified</option>
-                {RANK_OPTIONS.map((rank) => (
-                  <option key={rank.value} value={rank.value}>
-                    {rank.label}
-                  </option>
-                ))}
-              </select>
-            </FormField>
-            <FormField label="Peak Rank (optional)">
-              <select
-                value={soloPlayer.peakRank ?? ""}
-                onChange={(event) =>
-                  setSoloPlayer((current) => ({
-                    ...current,
-                    peakRank: event.target.value
-                      ? (event.target.value as PlayerRank)
-                      : undefined,
-                  }))
-                }
-                className="select-control bg-slate-950/60"
-              >
-                <option value="">Not specified</option>
-                {RANK_OPTIONS.map((rank) => (
-                  <option key={rank.value} value={rank.value}>
-                    {rank.label}
-                  </option>
-                ))}
-              </select>
-            </FormField>
-          </div>
-        </RegistrationFormSection>
-
-        <ValidationIssueList issues={soloValidationMessages} />
-
-        <div className="registration-form-action-bar">
-          <div className="registration-form-action-copy">
-            <p className="text-sm font-semibold text-soft">Ready to enter the solo queue?</p>
-            <p className="text-xs text-muted">
-              Submission routes to /api/register/solo with existing validation rules.
-            </p>
-          </div>
+      <section className={styles.typeSelector}>
+        <p className={styles.typeSelectorLabel}>Select Registration Type</p>
+        <div className={styles.typeCards}>
           <button
-            type="submit"
-            disabled={soloSubmitting || !soloValidation.success}
-            className="btn-base btn-primary w-full md:min-w-56 md:w-auto"
+            type="button"
+            className={`${styles.typeCard} ${mode === "solo" ? styles.selected : ""}`}
+            onClick={() => selectType("solo")}
+            disabled={Boolean(lockMode)}
           >
-            {soloButtonText}
+            <span className={styles.typeCardIcon}>⚔ Solo Entry</span>
+            <span className={styles.typeCardTitle}>Free Agent</span>
+            <span className={styles.typeCardDesc}>
+              Register as a solo player. Get matched with a team or compete independently in the ladder.
+            </span>
+          </button>
+          <button
+            type="button"
+            className={`${styles.typeCard} ${mode === "team" ? styles.selected : ""}`}
+            onClick={() => selectType("team")}
+            disabled={Boolean(lockMode)}
+          >
+            <span className={styles.typeCardIcon}>⬡ Team Entry</span>
+            <span className={styles.typeCardTitle}>Team</span>
+            <span className={styles.typeCardDesc}>
+              Register a full roster. One captain leads the charge into the tournament.
+            </span>
           </button>
         </div>
+      </section>
 
-        {soloMessage ? (
-          <StatusMessage
-            tone={soloMessage.tone === "success" ? "success" : "danger"}
-            className="mt-1"
-          >
-            {soloMessage.text}
-          </StatusMessage>
-        ) : null}
-      </form>
-    </SurfacePanel>
+      <section className={styles.formArea}>
+        {mode === "solo" ? (
+          <>
+            {soloErrors.length > 0 ? (
+              <div className={styles.validationSummary}>
+                <div className={styles.validationSummaryTitle}>Fix the following before submitting</div>
+                <ul>{soloErrors.map((error) => <li key={error}>{error}</li>)}</ul>
+              </div>
+            ) : null}
+            {soloApiError ? <p className={styles.apiError}>{soloApiError}</p> : null}
+            {soloSuccess ? (
+              <div className={styles.successPanel}>
+                <h2>You&apos;re In.</h2>
+                <p>Registration received.</p>
+                <pre>{soloSuccess}</pre>
+              </div>
+            ) : null}
+
+            {!soloSuccess ? (
+              <div className={styles.formPanel}>
+                <div className={styles.formSection}>
+                  <h3 className={styles.formSectionTitle}>Player Info</h3>
+                  <div className={styles.fieldRow2}>
+                    <div className={styles.field}>
+                      <label>Player Name *</label>
+                      <input value={soloName} onChange={(e) => setSoloName(e.target.value)} />
+                    </div>
+                    <div className={styles.field}>
+                      <label>Discord ID *</label>
+                      <input value={soloDiscord} onChange={(e) => setSoloDiscord(e.target.value)} />
+                    </div>
+                  </div>
+                  <div className={styles.field}>
+                    <label>Riot ID *</label>
+                    <input value={soloRiot} onChange={(e) => setSoloRiot(e.target.value)} />
+                  </div>
+                </div>
+
+                <div className={styles.formSection}>
+                  <h3 className={styles.formSectionTitle}>Gameplay Info</h3>
+                  <div className={styles.field}>
+                    <label>Preferred Role *</label>
+                    <select value={soloRole} onChange={(e) => setSoloRole(toRole(e.target.value))}>
+                      {ROLE_OPTIONS.map((role) => (
+                        <option key={role.value} value={role.value}>
+                          {role.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                <div className={styles.formSection}>
+                  <h3 className={styles.formSectionTitle}>Rank Info (Optional)</h3>
+                  <div className={styles.rankGrid}>
+                    {RANK_OPTIONS.map((rank) => (
+                      <button
+                        key={`current-${rank.value}`}
+                        type="button"
+                        className={`${styles.rankBtn} ${soloCurrentRank === rank.value ? styles.rankSelected : ""}`}
+                        onClick={() => setSoloCurrentRank(rank.value)}
+                      >
+                        {rank.label}
+                      </button>
+                    ))}
+                  </div>
+                  <div className={styles.divider} />
+                  <div className={styles.rankGrid}>
+                    {RANK_OPTIONS.map((rank) => (
+                      <button
+                        key={`peak-${rank.value}`}
+                        type="button"
+                        className={`${styles.rankBtn} ${soloPeakRank === rank.value ? styles.rankSelected : ""}`}
+                        onClick={() => setSoloPeakRank(rank.value)}
+                      >
+                        {rank.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className={styles.formActionsEnd}>
+                  <button
+                    type="button"
+                    className={styles.btnPrimary}
+                    disabled={soloSubmitting}
+                    onClick={submitSolo}
+                  >
+                    Submit Registration →
+                  </button>
+                </div>
+              </div>
+            ) : null}
+          </>
+        ) : (
+          <>
+            <div className={styles.stepIndicator}>
+              <div className={`${styles.step} ${teamStep === 1 ? styles.stepActive : teamStep > 1 ? styles.stepDone : ""}`}>
+                <span className={styles.stepNum}>1</span>
+                <span className={styles.stepName}>Team Info</span>
+              </div>
+              <span className={styles.stepConnector} />
+              <div className={`${styles.step} ${teamStep === 2 ? styles.stepActive : ""}`}>
+                <span className={styles.stepNum}>2</span>
+                <span className={styles.stepName}>Players</span>
+              </div>
+            </div>
+
+            {teamErrors.length > 0 ? (
+              <div className={styles.validationSummary}>
+                <div className={styles.validationSummaryTitle}>Fix the following before submitting</div>
+                <ul>{teamErrors.map((error) => <li key={error}>{error}</li>)}</ul>
+              </div>
+            ) : null}
+            {teamApiError ? <p className={styles.apiError}>{teamApiError}</p> : null}
+            {teamSuccess ? (
+              <div className={styles.successPanel}>
+                <h2>Roster Locked.</h2>
+                <p>Team registration received.</p>
+                <pre>{teamSuccess}</pre>
+              </div>
+            ) : null}
+
+            {!teamSuccess && teamStep === 1 ? (
+              <div className={styles.formPanel}>
+                <div className={styles.formSection}>
+                  <h3 className={styles.formSectionTitle}>Team Identity</h3>
+                  <div className={styles.fieldRow2}>
+                    <div className={styles.field}>
+                      <label>Team Name *</label>
+                      <input value={teamName} onChange={(e) => setTeamName(e.target.value)} maxLength={30} />
+                    </div>
+                    <div className={styles.field}>
+                      <label>Team Tag (optional)</label>
+                      <input value={teamTag} onChange={(e) => setTeamTag(e.target.value.toUpperCase())} maxLength={5} />
+                    </div>
+                  </div>
+                  <div className={styles.fieldRow2}>
+                    <div className={styles.field}>
+                      <label>Captain Discord ID *</label>
+                      <input value={captainDiscordId} onChange={(e) => setCaptainDiscordId(e.target.value)} />
+                    </div>
+                    <div className={styles.field}>
+                      <label>Team Logo URL (optional)</label>
+                      <input value={teamLogoUrl} onChange={(e) => setTeamLogoUrl(e.target.value)} />
+                    </div>
+                  </div>
+                </div>
+                <div className={styles.formActionsEnd}>
+                  <button
+                    type="button"
+                    className={styles.btnPrimary}
+                    onClick={() => {
+                      if (validateTeamStepOne()) {
+                        setTeamStep(2);
+                      }
+                    }}
+                  >
+                    Continue: Add Players →
+                  </button>
+                </div>
+              </div>
+            ) : null}
+
+            {!teamSuccess && teamStep === 2 ? (
+              <div className={styles.formPanel}>
+                <div className={styles.formSection}>
+                  <h3 className={styles.formSectionTitle}>Roster</h3>
+                  <div className={styles.playerCounter}>
+                    <span>{players.length} / {MAX_TEAM_PLAYERS} players added</span>
+                    <div className={styles.counterBar}>
+                      <span className={styles.counterBarFill} style={{ width: `${playerCountFill}%` }} />
+                    </div>
+                  </div>
+
+                  <div className={styles.playersContainer}>
+                    {players.map((player, index) => (
+                      <div key={player.localId} className={styles.playerCard}>
+                        <div className={styles.playerCardHeader}>
+                          <div className={styles.playerHeaderLeft}>
+                            <span className={styles.playerNum}>{index + 1}</span>
+                            <span className={styles.playerNamePreview}>{player.name || `Player ${index + 1}`}</span>
+                            {player.isCaptain ? <span className={styles.captainTag}>Captain</span> : null}
+                          </div>
+                          <button
+                            type="button"
+                            className={styles.btnRemovePlayer}
+                            onClick={() => removePlayer(player.localId)}
+                            disabled={players.length <= MIN_TEAM_PLAYERS}
+                          >
+                            Remove
+                          </button>
+                        </div>
+                        <div className={styles.playerCardBody}>
+                          <div className={styles.fieldRow2}>
+                            <div className={styles.field}>
+                              <label>Player Name *</label>
+                              <input
+                                value={player.name}
+                                onChange={(e) => updatePlayer(player.localId, { name: e.target.value })}
+                              />
+                            </div>
+                            <div className={styles.field}>
+                              <label>Riot ID *</label>
+                              <input
+                                value={player.riotId}
+                                onChange={(e) => updatePlayer(player.localId, { riotId: e.target.value })}
+                              />
+                            </div>
+                          </div>
+                          <div className={styles.fieldRow2}>
+                            <div className={styles.field}>
+                              <label>Discord ID *</label>
+                              <input
+                                value={player.discordId}
+                                onChange={(e) => updatePlayer(player.localId, { discordId: e.target.value })}
+                              />
+                            </div>
+                            <div className={styles.field}>
+                              <label>Role *</label>
+                              <select
+                                value={player.role}
+                                onChange={(e) => updatePlayer(player.localId, { role: toRole(e.target.value) })}
+                              >
+                                {ROLE_OPTIONS.map((role) => (
+                                  <option key={role.value} value={role.value}>
+                                    {role.label}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            className={`${styles.captainToggle} ${player.isCaptain ? styles.captainActive : ""}`}
+                            onClick={() => setCaptain(player.localId)}
+                          >
+                            Set as Team Captain
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <button
+                    type="button"
+                    className={styles.btnAddPlayer}
+                    onClick={addPlayer}
+                    disabled={players.length >= MAX_TEAM_PLAYERS}
+                  >
+                    + Add Player
+                  </button>
+                </div>
+
+                <div className={styles.formActions}>
+                  <button type="button" className={styles.btnGhost} onClick={() => setTeamStep(1)}>
+                    ← Back
+                  </button>
+                  <button
+                    type="button"
+                    className={styles.btnPrimary}
+                    disabled={teamSubmitting}
+                    onClick={submitTeam}
+                  >
+                    Submit Roster →
+                  </button>
+                </div>
+              </div>
+            ) : null}
+          </>
+        )}
+      </section>
+
+      <footer className={styles.footer}>
+        <div className={styles.footerBottom}>
+          <span className={styles.footerCopy}>
+            © 2025 Pub of Homies. All rights reserved. Developed by Abyss Mage.
+          </span>
+          <Link className={styles.footerAdminLogin} href="/admin/login">
+            Admin Login
+          </Link>
+        </div>
+        <div className={styles.footerAccent} />
+      </footer>
+
+      {querySuffix ? (
+        <div className={styles.contextBanner}>Context preserved: {querySuffix}</div>
+      ) : null}
+    </main>
   );
 }

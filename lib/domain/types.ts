@@ -86,6 +86,35 @@ export type UnderfilledTeamRecord = {
   slotsRemaining: number;
 };
 
+export type TeamRosterPlayerRecord = {
+  id: string;
+  name: string;
+  riotId: string;
+  discordId: string;
+  role: PlayerRole;
+  eventId: string;
+  teamId: string;
+  registrationId?: string;
+  createdAt: string | null;
+  updatedAt: string | null;
+};
+
+export type ApprovedTeamRosterRecord = {
+  id: string;
+  teamName: string;
+  captainDiscordId: string;
+  eventId: string;
+  playerCount: number;
+  status?: string;
+  registrationId?: string;
+  email?: string;
+  teamLogoUrl?: string;
+  teamTag?: string;
+  createdAt: string | null;
+  updatedAt: string | null;
+  players: TeamRosterPlayerRecord[];
+};
+
 export type RandomTeamCreationSummary = {
   operationId: string;
   eventId: string;
@@ -154,6 +183,7 @@ export type MatchRecord = {
   eventId: string;
   homeTeamId: string;
   awayTeamId: string;
+  mapRef: string;
   playedAt: string;
   status: MatchStatus;
   homeScore: number;
@@ -209,4 +239,14 @@ export type MvpSummary = {
   generatedAt: string;
   topCandidate?: MvpCandidate;
   candidates: MvpCandidate[];
+};
+
+export type MapRecord = {
+  id: string;
+  key: string;
+  name: string;
+  sortOrder: number;
+  isActive: boolean;
+  createdAt: string | null;
+  updatedAt: string | null;
 };

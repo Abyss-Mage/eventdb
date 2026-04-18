@@ -35,6 +35,7 @@ Required server configuration:
 - `APPWRITE_TEAM_STATS_COLLECTION_ID` (optional, defaults to `team_stats`)
 - `APPWRITE_PLAYER_STATS_COLLECTION_ID` (optional, defaults to `player_stats`)
 - `APPWRITE_MVP_COLLECTION_ID` (optional, defaults to `mvp`)
+- `APPWRITE_MAPS_COLLECTION_ID` (optional, defaults to `maps`)
 - `APPWRITE_ADMIN_AUDIT_LOGS_COLLECTION_ID` (optional, defaults to `admin_audit_logs`)
 - `RIOT_API_KEY` (required for Riot sync endpoints)
 - `RIOT_PLATFORM_REGION` (optional, defaults to `ap`)
@@ -73,7 +74,8 @@ Create tables in the configured database:
 7. `team_stats`
 8. `player_stats`
 9. `mvp`
-10. `admin_audit_logs`
+10. `maps`
+11. `admin_audit_logs`
 
 ### `registrations` (team submissions, pending approval)
 
@@ -116,11 +118,13 @@ Create tables in the configured database:
 - `events`: event metadata, lifecycle status, start/end and registration windows,
   plus optional registration link token/meta.
 - `matches`: event-linked fixtures/results with home/away teams, played time, score,
-  and round differential fields.
+  round differential fields (computed from score), and selected map reference (`mapRef`).
 - `team_stats`: event standings aggregate (wins/losses/matches played/round diff,
   optional points).
-- `player_stats`: event player aggregates (kills/deaths/assists) with match/map refs.
+- `player_stats`: per-match/per-map player stat rows (kills/deaths/assists) with
+  required match/map refs.
 - `mvp`: MVP candidate summaries and ranked scoring snapshots per event.
+- `maps`: canonical Valorant map catalog for required admin stat-entry selection.
 
 ## Admin Audit Logs
 
@@ -175,6 +179,7 @@ Registration behavior:
 - `GET /api/admin/matches?eventId=<event-id>&status=<match-status>&limit=<1-100>`
 - `POST /api/admin/matches`
 - `PATCH /api/admin/matches/update`
+- `GET /api/admin/maps?activeOnly=true|false&limit=<1-200>`
 - `GET /api/admin/leaderboard?eventId=<event-id>&limit=<1-100>&sortBy=wins|roundDiff|points`
 - `POST /api/admin/leaderboard/recompute`
 - `GET /api/admin/player-stats?eventId=<event-id>&teamId=<team-id>&playerId=<player-id>&limit=<1-100>`
@@ -186,6 +191,7 @@ Registration behavior:
 - `POST /api/admin/riot/sync`
 - `GET /api/admin/solo-pool?eventId=<event-id>&limit=<1-200>`
 - `GET /api/admin/teams/underfilled?eventId=<event-id>&limit=<1-200>`
+- `GET /api/admin/teams/roster?eventId=<event-id>&limit=<1-200>`
 - `POST /api/admin/teams/randomize`
 - `POST /api/admin/teams/assign-solo`
 - `POST /api/admin/auth/login`
@@ -228,7 +234,14 @@ Player stats notes:
 
 - Player stats are persisted in `player_stats` and can be created/edited from `/dashboard/events`.
 - Admin player-stats API supports event-scoped listing with optional `teamId`/`playerId` filters.
+- Admin player-stats entry uses Team/Player/Match selectors; map is auto-filled and locked from the selected match.
+- Match ID is shown as the primary match identifier in player-stats match selection/display.
+- `matchesPlayed` and `mapsPlayed` are derived from per-row identity (not manual form inputs).
 - Manual stats entry/edit remains available as a fallback even when Riot sync is unconfigured or fails.
+
+Match notes:
+
+- Admin match entry includes map selection and persists it on the match as `mapRef`.
 
 MVP notes:
 

@@ -69,6 +69,7 @@ type MatchDocument = Models.Document & {
   eventId?: string;
   homeTeamId?: string;
   awayTeamId?: string;
+  mapRef?: string;
   playedAt?: string;
   status?: MatchStatus;
   homeScore?: number;
@@ -177,17 +178,28 @@ export type UpdateEventInput = Partial<
   Omit<EventRecord, "id" | "createdAt" | "updatedAt">
 >;
 
-export type CreateMatchInput = Omit<MatchRecord, "id"> & {
+export type CreateMatchInput = Omit<
+  MatchRecord,
+  "id" | "homeRoundDiff" | "awayRoundDiff"
+> & {
   id?: string;
 };
 
-export type UpdateMatchInput = Partial<Omit<MatchRecord, "id">>;
+export type UpdateMatchInput = Partial<
+  Omit<MatchRecord, "id" | "homeRoundDiff" | "awayRoundDiff" | "mapRef">
+> &
+  Pick<MatchRecord, "mapRef">;
 
-export type CreatePlayerStatInput = PlayerStatAggregate & {
+export type CreatePlayerStatInput = Omit<
+  PlayerStatAggregate,
+  "matchesPlayed" | "mapsPlayed"
+> & {
   id?: string;
 };
 
-export type UpdatePlayerStatInput = Partial<PlayerStatAggregate>;
+export type UpdatePlayerStatInput = Partial<
+  Omit<PlayerStatAggregate, "matchesPlayed" | "mapsPlayed">
+>;
 
 const EVENT_STATUS_VALUES = new Set<EventStatus>([
   "draft",
@@ -219,6 +231,7 @@ const MVP_SCORE_WEIGHTS = {
   roundDiff: 0.5,
   point: 0.75,
 } as const;
+const LEGACY_MATCH_MAP_REF = "unknown";
 
 function isAppwriteException(error: unknown): error is AppwriteException {
   return error instanceof AppwriteException;
@@ -446,6 +459,8 @@ function mapMatchDocument(document: MatchDocument): MatchRecord {
   const eventId = normalizeRequiredText(document.eventId, "Match eventId", 500);
   const homeTeamId = normalizeRequiredText(document.homeTeamId, "Match homeTeamId", 500);
   const awayTeamId = normalizeRequiredText(document.awayTeamId, "Match awayTeamId", 500);
+  const mapRef =
+    normalizeOptionalText(document.mapRef, "Match mapRef", 500) ?? LEGACY_MATCH_MAP_REF;
   const playedAt = normalizeIsoDatetime(document.playedAt ?? "", "Match playedAt", 500);
   const homeScore = normalizeNonNegativeInteger(
     document.homeScore,
@@ -479,6 +494,7 @@ function mapMatchDocument(document: MatchDocument): MatchRecord {
     eventId,
     homeTeamId,
     awayTeamId,
+    mapRef,
     playedAt,
     status: document.status,
     homeScore,
@@ -1023,11 +1039,12 @@ function toMatchWriteData(match: MatchRecord) {
   const eventId = normalizeRequiredText(match.eventId, "eventId");
   const homeTeamId = normalizeRequiredText(match.homeTeamId, "homeTeamId");
   const awayTeamId = normalizeRequiredText(match.awayTeamId, "awayTeamId");
+  const mapRef = normalizeRequiredText(match.mapRef, "mapRef");
   const playedAt = normalizeIsoDatetime(match.playedAt, "playedAt");
   const homeScore = normalizeNonNegativeInteger(match.homeScore, "homeScore");
   const awayScore = normalizeNonNegativeInteger(match.awayScore, "awayScore");
-  const homeRoundDiff = normalizeInteger(match.homeRoundDiff, "homeRoundDiff");
-  const awayRoundDiff = normalizeInteger(match.awayRoundDiff, "awayRoundDiff");
+  const homeRoundDiff = homeScore - awayScore;
+  const awayRoundDiff = awayScore - homeScore;
 
   if (!isMatchStatus(match.status)) {
     throw new HttpError("status is invalid.", 400);
@@ -1039,6 +1056,7 @@ function toMatchWriteData(match: MatchRecord) {
     eventId,
     homeTeamId,
     awayTeamId,
+    mapRef,
     playedAt,
     status: match.status,
     homeScore,
@@ -1309,12 +1327,13 @@ export async function createMatch(input: CreateMatchInput): Promise<MatchRecord>
     eventId: input.eventId,
     homeTeamId: input.homeTeamId,
     awayTeamId: input.awayTeamId,
+    mapRef: input.mapRef,
     playedAt: input.playedAt,
     status: input.status,
     homeScore: input.homeScore,
     awayScore: input.awayScore,
-    homeRoundDiff: input.homeRoundDiff,
-    awayRoundDiff: input.awayRoundDiff,
+    homeRoundDiff: 0,
+    awayRoundDiff: 0,
   });
 }
 
@@ -1681,7 +1700,15 @@ export async function createPlayerStat(
     typeof input.id === "string" && input.id.trim().length > 0
       ? input.id.trim()
       : ID.unique();
-  const statData = toPlayerStatWriteData(input);
+  const normalizedMatchId = normalizeRequiredText(input.matchId ?? "", "matchId");
+  const normalizedMapRef = normalizeRequiredText(input.mapRef ?? "", "mapRef");
+  const statData = toPlayerStatWriteData({
+    ...input,
+    matchId: normalizedMatchId,
+    mapRef: normalizedMapRef,
+    matchesPlayed: 1,
+    mapsPlayed: 1,
+  });
 
   try {
     const created = await databases.createDocument<PlayerStatDocument>(
@@ -1727,12 +1754,24 @@ export async function updatePlayerStat(
     kills: existingPlayerStat.kills,
     deaths: existingPlayerStat.deaths,
     assists: existingPlayerStat.assists,
-    matchesPlayed: existingPlayerStat.matchesPlayed,
-    mapsPlayed: existingPlayerStat.mapsPlayed,
+    matchesPlayed: 1,
+    mapsPlayed: 1,
   };
+  const nextMatchId = normalizeRequiredText(
+    normalizedUpdates.matchId ?? existingStatLine.matchId ?? "",
+    "matchId",
+  );
+  const nextMapRef = normalizeRequiredText(
+    normalizedUpdates.mapRef ?? existingStatLine.mapRef ?? "",
+    "mapRef",
+  );
   const nextStatData = toPlayerStatWriteData({
     ...existingStatLine,
     ...normalizedUpdates,
+    matchId: nextMatchId,
+    mapRef: nextMapRef,
+    matchesPlayed: 1,
+    mapsPlayed: 1,
   });
   const databases = getAppwriteDatabases();
   const { databaseId, playerStatsCollectionId } = getAppwriteCollections();
@@ -1945,19 +1984,28 @@ export async function generateMvpSummaryForEvent(eventId: string): Promise<MvpSu
   );
   const candidateInputsByKey = new Map<
     string,
-    Omit<MvpCandidate, "roundDiff" | "points" | "score" | "rank">
+    {
+      eventId: string;
+      playerId: string;
+      teamId: string;
+      kills: number;
+      deaths: number;
+      assists: number;
+      matchRefs: Set<string>;
+    }
   >();
 
   for (const playerStatDocument of playerStats) {
     const playerStat = mapPlayerStatDocument(playerStatDocument);
     const key = toMvpCandidateKey(playerStat);
     const existing = candidateInputsByKey.get(key);
+    const matchRef = normalizeStatRef(playerStat.matchId) ?? `row:${playerStat.id}`;
 
     if (existing) {
       existing.kills += playerStat.kills;
       existing.deaths += playerStat.deaths;
       existing.assists += playerStat.assists;
-      existing.matchesPlayed += playerStat.matchesPlayed;
+      existing.matchRefs.add(matchRef);
       continue;
     }
 
@@ -1968,7 +2016,7 @@ export async function generateMvpSummaryForEvent(eventId: string): Promise<MvpSu
       kills: playerStat.kills,
       deaths: playerStat.deaths,
       assists: playerStat.assists,
-      matchesPlayed: playerStat.matchesPlayed,
+      matchRefs: new Set([matchRef]),
     });
   }
 
@@ -1977,16 +2025,23 @@ export async function generateMvpSummaryForEvent(eventId: string): Promise<MvpSu
       const standing = standingsByTeamId.get(candidate.teamId);
       const roundDiff = standing?.roundDiff ?? 0;
       const points = standing?.points;
+      const matchesPlayed = candidate.matchRefs.size;
 
       return {
-        ...candidate,
+        eventId: candidate.eventId,
+        playerId: candidate.playerId,
+        teamId: candidate.teamId,
+        kills: candidate.kills,
+        deaths: candidate.deaths,
+        assists: candidate.assists,
+        matchesPlayed,
         roundDiff,
         points,
         score: computeMvpScore({
           kills: candidate.kills,
           deaths: candidate.deaths,
           assists: candidate.assists,
-          matchesPlayed: candidate.matchesPlayed,
+          matchesPlayed,
           roundDiff,
           points,
         }),

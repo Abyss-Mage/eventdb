@@ -308,6 +308,7 @@ function toMatchRecord(
     eventId,
     homeTeamId: home.internalTeamId,
     awayTeamId: away.internalTeamId,
+    mapRef: "unknown",
     playedAt: match.startedAt,
     status: match.isCompleted ? "completed" : "in_progress",
     homeScore: home.roundsWon,

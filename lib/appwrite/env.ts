@@ -13,6 +13,7 @@ type AppwriteServerEnv = {
   APPWRITE_TEAM_STATS_COLLECTION_ID: string;
   APPWRITE_PLAYER_STATS_COLLECTION_ID: string;
   APPWRITE_MVP_COLLECTION_ID: string;
+  APPWRITE_MAPS_COLLECTION_ID: string;
   APPWRITE_ADMIN_AUDIT_LOGS_COLLECTION_ID: string;
 };
 
@@ -79,6 +80,7 @@ export function getAppwriteServerEnv(): AppwriteServerEnv {
       "player_stats",
     ),
     APPWRITE_MVP_COLLECTION_ID: envWithDefault("APPWRITE_MVP_COLLECTION_ID", "mvp"),
+    APPWRITE_MAPS_COLLECTION_ID: envWithDefault("APPWRITE_MAPS_COLLECTION_ID", "maps"),
     APPWRITE_ADMIN_AUDIT_LOGS_COLLECTION_ID: envWithDefault(
       "APPWRITE_ADMIN_AUDIT_LOGS_COLLECTION_ID",
       "admin_audit_logs",
