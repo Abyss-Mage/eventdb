@@ -17,8 +17,23 @@ export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
   return withAdminRouteAuth(request, async (authedRequest) => {
+    const allowedFormats = [
+      "single_elimination",
+      "double_elimination",
+      "league",
+    ] as const;
+    type AllowedFormat = (typeof allowedFormats)[number];
+    const allowedVisibilities = ["public", "unlisted", "private"] as const;
+    type AllowedVisibility = (typeof allowedVisibilities)[number];
+
     const requestUrl = new URL(authedRequest.url);
     const statusParam = requestUrl.searchParams.get("status");
+    const tenantIdParam = requestUrl.searchParams.get("tenantId");
+    const organizerIdParam = requestUrl.searchParams.get("organizerId");
+    const gameParam = requestUrl.searchParams.get("game");
+    const regionParam = requestUrl.searchParams.get("region");
+    const formatParam = requestUrl.searchParams.get("format");
+    const visibilityParam = requestUrl.searchParams.get("visibility");
     const limitParam = requestUrl.searchParams.get("limit");
 
     let status: EventStatus | undefined;
@@ -41,8 +56,33 @@ export async function GET(request: Request) {
       limit = parsedLimit;
     }
 
+    let format: AllowedFormat | undefined;
+    if (formatParam !== null) {
+      if (!(allowedFormats as readonly string[]).includes(formatParam)) {
+        return failure("Invalid format query parameter.", 400);
+      }
+      format = formatParam as AllowedFormat;
+    }
+
+    let visibility: AllowedVisibility | undefined;
+    if (visibilityParam !== null) {
+      if (!(allowedVisibilities as readonly string[]).includes(visibilityParam)) {
+        return failure("Invalid visibility query parameter.", 400);
+      }
+      visibility = visibilityParam as AllowedVisibility;
+    }
+
     try {
-      const events = await listEvents({ status, limit });
+      const events = await listEvents({
+        status,
+        tenantId: tenantIdParam?.trim() || undefined,
+        organizerId: organizerIdParam?.trim() || undefined,
+        game: gameParam?.trim() || undefined,
+        region: regionParam?.trim() || undefined,
+        format,
+        visibility,
+        limit,
+      });
       return success({ events });
     } catch (error) {
       if (isHttpError(error)) {
@@ -90,7 +130,10 @@ export async function POST(request: Request) {
     }
 
     try {
-      const event = await createEvent(parsed.data);
+      const event = await createEvent({
+        ...parsed.data,
+        createdByUserId: parsed.data.createdByUserId ?? auth.user.$id,
+      });
       await writeAdminAuditLogBestEffort({
         ...actor,
         action: "admin.event.create",
@@ -102,6 +145,8 @@ export async function POST(request: Request) {
           slug: event.slug,
           code: event.code,
           status: event.status,
+          tenantId: event.tenantId,
+          organizerId: event.organizerId,
         },
       });
       return success({ event }, 201);

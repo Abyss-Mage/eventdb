@@ -31,6 +31,12 @@ import type {
 
 export type ListEventsOptions = {
   status?: EventStatus;
+  tenantId?: string;
+  organizerId?: string;
+  game?: string;
+  region?: string;
+  format?: "single_elimination" | "double_elimination" | "league";
+  visibility?: "public" | "unlisted" | "private";
   limit?: number;
 };
 
@@ -53,6 +59,17 @@ export type ListPlayerStatsOptions = {
 };
 
 type EventDocument = Models.Document & {
+  tenantId?: string;
+  organizerId?: string;
+  game?: string;
+  region?: string;
+  format?: "single_elimination" | "double_elimination" | "league";
+  visibility?: "public" | "unlisted" | "private";
+  entryFeeMinor?: number;
+  currency?: string;
+  registrationMode?: "manual_approval" | "auto_approval";
+  prizePoolConfigJson?: string;
+  createdByUserId?: string;
   name?: string;
   slug?: string;
   code?: string;
@@ -454,6 +471,27 @@ function mapEventDocument(document: EventDocument): EventRecord {
 
   return {
     id: document.$id,
+    tenantId: typeof document.tenantId === "string" ? document.tenantId : undefined,
+    organizerId:
+      typeof document.organizerId === "string" ? document.organizerId : undefined,
+    game: typeof document.game === "string" ? document.game : undefined,
+    region: typeof document.region === "string" ? document.region : undefined,
+    format: typeof document.format === "string" ? document.format : undefined,
+    visibility:
+      typeof document.visibility === "string" ? document.visibility : undefined,
+    entryFeeMinor:
+      typeof document.entryFeeMinor === "number" ? document.entryFeeMinor : undefined,
+    currency: typeof document.currency === "string" ? document.currency : undefined,
+    registrationMode:
+      typeof document.registrationMode === "string"
+        ? document.registrationMode
+        : undefined,
+    prizePoolConfigJson:
+      typeof document.prizePoolConfigJson === "string"
+        ? document.prizePoolConfigJson
+        : undefined,
+    createdByUserId:
+      typeof document.createdByUserId === "string" ? document.createdByUserId : undefined,
     name: document.name,
     slug: document.slug,
     code: document.code,
@@ -1085,6 +1123,17 @@ async function deleteDocumentsByIds(
 }
 
 function toEventWriteData(event: {
+  tenantId?: string;
+  organizerId?: string;
+  game?: string;
+  region?: string;
+  format?: "single_elimination" | "double_elimination" | "league";
+  visibility?: "public" | "unlisted" | "private";
+  entryFeeMinor?: number;
+  currency?: string;
+  registrationMode?: "manual_approval" | "auto_approval";
+  prizePoolConfigJson?: string;
+  createdByUserId?: string;
   name: string;
   slug: string;
   code: string;
@@ -1097,6 +1146,18 @@ function toEventWriteData(event: {
   registrationLinkMeta?: EventRegistrationLinkMeta;
 }) {
   const normalizedEvent = {
+    tenantId: event.tenantId?.trim() || undefined,
+    organizerId: event.organizerId?.trim() || undefined,
+    game: event.game?.trim() || undefined,
+    region: event.region?.trim() || undefined,
+    format: event.format,
+    visibility: event.visibility,
+    entryFeeMinor:
+      typeof event.entryFeeMinor === "number" ? event.entryFeeMinor : undefined,
+    currency: event.currency?.trim().toUpperCase() || undefined,
+    registrationMode: event.registrationMode,
+    prizePoolConfigJson: event.prizePoolConfigJson?.trim() || undefined,
+    createdByUserId: event.createdByUserId?.trim() || undefined,
     name: event.name.trim(),
     slug: event.slug.trim().toLowerCase(),
     code: event.code.trim().toUpperCase(),
@@ -1175,6 +1236,24 @@ export async function listEvents(
   if (options.status) {
     queries.unshift(Query.equal("status", options.status));
   }
+  if (options.tenantId) {
+    queries.push(Query.equal("tenantId", options.tenantId));
+  }
+  if (options.organizerId) {
+    queries.push(Query.equal("organizerId", options.organizerId));
+  }
+  if (options.game) {
+    queries.push(Query.equal("game", options.game));
+  }
+  if (options.region) {
+    queries.push(Query.equal("region", options.region));
+  }
+  if (options.format) {
+    queries.push(Query.equal("format", options.format));
+  }
+  if (options.visibility) {
+    queries.push(Query.equal("visibility", options.visibility));
+  }
 
   try {
     const documents = await databases.listDocuments<EventDocument>(
@@ -1249,6 +1328,17 @@ export async function createEvent(input: CreateEventInput): Promise<EventRecord>
 
   return upsertEvent({
     id: eventId,
+    tenantId: input.tenantId,
+    organizerId: input.organizerId,
+    game: input.game,
+    region: input.region,
+    format: input.format,
+    visibility: input.visibility,
+    entryFeeMinor: input.entryFeeMinor,
+    currency: input.currency,
+    registrationMode: input.registrationMode,
+    prizePoolConfigJson: input.prizePoolConfigJson,
+    createdByUserId: input.createdByUserId,
     name: input.name,
     slug: input.slug,
     code: input.code,

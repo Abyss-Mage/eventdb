@@ -8,10 +8,20 @@ import {
 import { isAdminAuthSession } from "@/lib/appwrite/admin-role";
 import { HttpError } from "@/lib/errors/http-error";
 import { failure } from "@/lib/http/response";
+import {
+  type PlatformActorContext,
+  buildPlatformActorContext,
+} from "@/services/platform-identity";
 
 export type AdminRouteHandler = (
   request: Request,
   auth: AdminAuthSession,
+) => Promise<Response>;
+
+export type AdminActorRouteHandler = (
+  request: Request,
+  auth: AdminAuthSession,
+  actor: PlatformActorContext,
 ) => Promise<Response>;
 
 type AdminRouteAuthOptions = {
@@ -76,4 +86,23 @@ export async function withAdminRouteAuth(
   }
 
   return handler(request, auth);
+}
+
+export async function withAdminActorRouteAuth(
+  request: Request,
+  handler: AdminActorRouteHandler,
+  options?: AdminRouteAuthOptions,
+): Promise<Response> {
+  return withAdminRouteAuth(
+    request,
+    async (authedRequest, auth) => {
+      const actor = await buildPlatformActorContext({
+        appwriteUserId: auth.user.$id,
+        isPlatformAdmin: true,
+      });
+
+      return handler(authedRequest, auth, actor);
+    },
+    options,
+  );
 }

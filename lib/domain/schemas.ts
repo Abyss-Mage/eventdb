@@ -201,6 +201,74 @@ export const adminEventScopedQuerySchema = z.object({
     .optional(),
 });
 
+export const adminLedgerQuerySchema = z.object({
+  tenantId: textSchema.max(64, "Tenant ID cannot exceed 64 characters.").optional(),
+  organizerId: textSchema.max(64, "Organizer ID cannot exceed 64 characters.").optional(),
+  eventId: textSchema.max(64, "Event ID cannot exceed 64 characters.").optional(),
+  payerUserId: textSchema.max(64, "Payer user ID cannot exceed 64 characters.").optional(),
+  transactionType: escrowTransactionTypeSchema.optional(),
+  status: escrowTransactionStatusSchema.optional(),
+  limit: z
+    .preprocess(
+      (value) => {
+        if (value === undefined || value === null || value === "") {
+          return undefined;
+        }
+
+        if (typeof value === "string") {
+          return Number(value);
+        }
+
+        return value;
+      },
+      z
+        .number()
+        .int("limit must be an integer.")
+        .min(1, "limit must be at least 1.")
+        .max(200, "limit must be at most 200.")
+        .optional(),
+    )
+    .optional(),
+  offset: z
+    .preprocess((value) => {
+      if (value === undefined || value === null || value === "") {
+        return undefined;
+      }
+
+      if (typeof value === "string") {
+        return Number(value);
+      }
+
+      return value;
+    }, z.number().int().min(0).optional())
+    .optional(),
+  order: z.enum(["asc", "desc"]).optional(),
+});
+
+export const adminBracketQuerySchema = adminEventScopedQuerySchema.extend({
+  limit: z
+    .preprocess(
+      (value) => {
+        if (value === undefined || value === null || value === "") {
+          return undefined;
+        }
+
+        if (typeof value === "string") {
+          return Number(value);
+        }
+
+        return value;
+      },
+      z
+        .number()
+        .int("limit must be an integer.")
+        .min(1, "limit must be at least 1.")
+        .max(100, "limit must be at most 100.")
+        .optional(),
+    )
+    .optional(),
+});
+
 export const adminRandomTeamCreationSchema = z
   .object({
     eventId: textSchema.min(1, "Event ID is required."),
@@ -224,6 +292,16 @@ export const adminAssignSoloPlayersSchema = z.object({
   eventId: textSchema.min(1, "Event ID is required."),
   teamId: textSchema.min(1, "Team ID is required."),
   soloPlayerIds: soloPlayerIdsSchema,
+});
+
+export const adminRegenerateTeamInviteSchema = z.object({
+  eventId: textSchema.min(1, "Event ID is required."),
+  teamId: textSchema.min(1, "Team ID is required."),
+});
+
+export const adminGenerateBracketSchema = z.object({
+  eventId: textSchema.min(1, "Event ID is required."),
+  state: z.enum(["draft", "published"]).optional(),
 });
 
 export const adminLoginSchema = z.object({
@@ -262,6 +340,42 @@ export const eventStatusValueSchema = eventStatusSchema;
 export const matchStatusValueSchema = matchStatusSchema;
 
 const eventMutableSchema = z.object({
+  tenantId: textSchema.max(64, "Tenant ID cannot exceed 64 characters.").optional(),
+  organizerId: textSchema
+    .max(64, "Organizer ID cannot exceed 64 characters.")
+    .optional(),
+  game: z
+    .preprocess(
+      (value) =>
+        typeof value === "string" && value.trim().length === 0 ? undefined : value,
+      textSchema.max(40, "Game cannot exceed 40 characters.").optional(),
+    )
+    .optional(),
+  region: z
+    .preprocess(
+      (value) =>
+        typeof value === "string" && value.trim().length === 0 ? undefined : value,
+      textSchema.max(40, "Region cannot exceed 40 characters.").optional(),
+    )
+    .optional(),
+  format: z
+    .enum(["single_elimination", "double_elimination", "league"])
+    .optional(),
+  visibility: z.enum(["public", "unlisted", "private"]).optional(),
+  entryFeeMinor: z.number().int().min(0).optional(),
+  currency: z
+    .preprocess(
+      (value) =>
+        typeof value === "string" && value.trim().length === 0 ? undefined : value,
+      textSchema
+        .length(3, "Currency must be a 3-letter ISO code.")
+        .transform((value) => value.toUpperCase())
+        .optional(),
+    )
+    .optional(),
+  registrationMode: z.enum(["manual_approval", "auto_approval"]).optional(),
+  prizePoolConfigJson: textSchema.max(50_000).optional(),
+  createdByUserId: textSchema.max(64).optional(),
   name: textSchema.min(2, "Event name must be at least 2 characters.").max(120),
   slug: textSchema
     .min(2, "Event slug must be at least 2 characters.")
@@ -531,4 +645,342 @@ export const mvpSummarySchema = z.object({
   generatedAt: isoDatetimeSchema,
   topCandidate: mvpCandidateSchema.optional(),
   candidates: z.array(mvpCandidateSchema),
+});
+
+export const platformRoleSchema = z.enum(["player", "organizer", "admin"]);
+export const platformUserStatusSchema = z.enum(["active", "suspended", "deleted"]);
+export const organizerVerificationStatusSchema = z.enum([
+  "pending",
+  "under_review",
+  "approved",
+  "rejected",
+]);
+export const organizerEventStatusSchema = z.enum([
+  "draft",
+  "published",
+  "ongoing",
+  "completed",
+  "archived",
+]);
+export const tournamentFormatSchema = z.enum([
+  "single_elimination",
+  "double_elimination",
+  "league",
+]);
+export const registrationApprovalModeSchema = z.enum([
+  "manual_approval",
+  "auto_approval",
+]);
+export const payoutStatusSchema = z.enum([
+  "requested",
+  "under_review",
+  "approved",
+  "rejected",
+  "processing",
+  "paid",
+  "failed",
+]);
+export const escrowTransactionTypeSchema = z.enum([
+  "entry_fee_charge",
+  "escrow_credit",
+  "escrow_debit",
+  "commission_reserve",
+  "refund",
+  "adjustment",
+]);
+export const escrowTransactionStatusSchema = z.enum([
+  "initiated",
+  "authorized",
+  "captured",
+  "failed",
+  "refunded",
+  "settled",
+]);
+export const escrowPayeeTypeSchema = z.enum([
+  "escrow",
+  "organizer",
+  "platform",
+  "user_refund",
+]);
+export const paymentGatewaySchema = z.enum(["razorpay", "internal"]);
+
+export const tenantScopedSchema = z.object({
+  tenantId: textSchema.min(1, "Tenant ID is required."),
+  organizerId: textSchema.min(1, "Organizer ID is required."),
+});
+
+export const tenantScopedEventQuerySchema = tenantScopedSchema.extend({
+  eventId: textSchema.min(1, "Event ID is required."),
+});
+
+export const platformUserSchema = z.object({
+  id: textSchema.min(1, "User ID is required."),
+  appwriteUserId: textSchema.min(1, "Appwrite user ID is required."),
+  displayName: textSchema.min(1, "Display name is required."),
+  email: z.string().trim().toLowerCase().email("Email must be valid."),
+  phone: textSchema.max(24).optional(),
+  roles: z.array(platformRoleSchema).min(1, "At least one role is required."),
+  status: platformUserStatusSchema,
+  defaultRegion: textSchema.max(64).optional(),
+  kycStatus: z.enum(["not_required", "pending", "verified", "rejected"]),
+  createdAt: isoDatetimeSchema.nullable(),
+  updatedAt: isoDatetimeSchema.nullable(),
+});
+
+export const organizerSchema = z.object({
+  id: textSchema.min(1, "Organizer ID is required."),
+  tenantId: textSchema.min(1, "Tenant ID is required."),
+  ownerUserId: textSchema.min(1, "Owner user ID is required."),
+  name: textSchema.min(2, "Organizer name must be at least 2 characters.").max(120),
+  slug: textSchema.min(2, "Organizer slug must be at least 2 characters.").max(80),
+  supportEmail: z.string().trim().toLowerCase().email("Support email must be valid."),
+  verificationStatus: organizerVerificationStatusSchema,
+  verificationBadge: z.boolean(),
+  commissionRateBps: z
+    .number()
+    .int("Commission rate must be an integer.")
+    .min(0)
+    .max(10_000),
+  payoutHoldDays: z
+    .number()
+    .int("Payout hold days must be an integer.")
+    .min(0)
+    .max(120),
+  isActive: z.boolean(),
+  createdAt: isoDatetimeSchema.nullable(),
+  updatedAt: isoDatetimeSchema.nullable(),
+});
+
+export const createOrganizerPayloadSchema = organizerSchema
+  .omit({ id: true, createdAt: true, updatedAt: true })
+  .extend({
+    verificationStatus: organizerVerificationStatusSchema.optional(),
+    verificationBadge: z.boolean().optional(),
+    isActive: z.boolean().optional(),
+  });
+
+export const listOrganizersQuerySchema = z.object({
+  verificationStatus: organizerVerificationStatusSchema.optional(),
+  limit: z
+    .preprocess(
+      (value) => {
+        if (value === undefined || value === null || value === "") {
+          return undefined;
+        }
+        if (typeof value === "string") {
+          return Number(value);
+        }
+        return value;
+      },
+      z.number().int().min(1).max(200).optional(),
+    )
+    .optional(),
+});
+
+export const updateOrganizerVerificationPayloadSchema = z.object({
+  organizerId: textSchema.min(1, "Organizer ID is required."),
+  verificationStatus: organizerVerificationStatusSchema,
+  verificationBadge: z.boolean().optional(),
+  isActive: z.boolean().optional(),
+});
+
+export const publicEventDiscoveryQuerySchema = z
+  .object({
+    game: z
+      .preprocess(
+        (value) =>
+          typeof value === "string" && value.trim().length === 0 ? undefined : value,
+        textSchema.max(40, "Game filter cannot exceed 40 characters.").optional(),
+      )
+      .optional(),
+    region: z
+      .preprocess(
+        (value) =>
+          typeof value === "string" && value.trim().length === 0 ? undefined : value,
+        textSchema.max(40, "Region filter cannot exceed 40 characters.").optional(),
+      )
+      .optional(),
+    format: tournamentFormatSchema.optional(),
+    minEntryFeeMinor: z
+      .preprocess(
+        (value) => {
+          if (value === undefined || value === null || value === "") {
+            return undefined;
+          }
+          if (typeof value === "string") {
+            return Number(value);
+          }
+          return value;
+        },
+        z.number().int("minEntryFeeMinor must be an integer.").min(0).optional(),
+      )
+      .optional(),
+    maxEntryFeeMinor: z
+      .preprocess(
+        (value) => {
+          if (value === undefined || value === null || value === "") {
+            return undefined;
+          }
+          if (typeof value === "string") {
+            return Number(value);
+          }
+          return value;
+        },
+        z.number().int("maxEntryFeeMinor must be an integer.").min(0).optional(),
+      )
+      .optional(),
+    limit: z
+      .preprocess(
+        (value) => {
+          if (value === undefined || value === null || value === "") {
+            return undefined;
+          }
+          if (typeof value === "string") {
+            return Number(value);
+          }
+          return value;
+        },
+        z.number().int("limit must be an integer.").min(1).max(100).optional(),
+      )
+      .optional(),
+  })
+  .superRefine((payload, ctx) => {
+    if (
+      payload.minEntryFeeMinor !== undefined &&
+      payload.maxEntryFeeMinor !== undefined &&
+      payload.maxEntryFeeMinor < payload.minEntryFeeMinor
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "maxEntryFeeMinor must be greater than or equal to minEntryFeeMinor.",
+        path: ["maxEntryFeeMinor"],
+      });
+    }
+  });
+
+export const organizerEventConfigSchema = tenantScopedSchema.extend({
+  title: textSchema.min(2).max(120),
+  slug: textSchema.min(2).max(80),
+  code: textSchema.min(2).max(32),
+  game: textSchema.min(2).max(40),
+  region: textSchema.min(2).max(40),
+  format: tournamentFormatSchema,
+  status: organizerEventStatusSchema,
+  visibility: z.enum(["public", "unlisted", "private"]),
+  entryFeeMinor: z.number().int().min(0),
+  currency: textSchema.min(3).max(3).transform((value) => value.toUpperCase()),
+  registrationMode: registrationApprovalModeSchema,
+  startsAt: isoDatetimeSchema,
+  endsAt: isoDatetimeSchema,
+  registrationOpensAt: isoDatetimeSchema,
+  registrationClosesAt: isoDatetimeSchema,
+  prizePoolConfigJson: textSchema.max(50_000).optional(),
+});
+
+export const bracketSchema = tenantScopedEventQuerySchema.extend({
+  id: textSchema.min(1, "Bracket ID is required."),
+  format: tournamentFormatSchema,
+  version: z.number().int().min(1),
+  state: z.enum(["draft", "published", "locked", "completed"]),
+  structureJson: textSchema.min(2, "Bracket structure JSON is required."),
+  generatedByUserId: textSchema.min(1, "Generator user ID is required."),
+  publishedAt: isoDatetimeSchema.optional(),
+  createdAt: isoDatetimeSchema.nullable(),
+  updatedAt: isoDatetimeSchema.nullable(),
+});
+
+export const createBracketPayloadSchema = bracketSchema
+  .omit({ id: true, createdAt: true, updatedAt: true, publishedAt: true })
+  .extend({
+    state: z.enum(["draft", "published"]).optional(),
+  });
+
+const optionalPaymentReferenceSchema = z.preprocess(
+  (value) =>
+    typeof value === "string" && value.trim().length === 0 ? undefined : value,
+  textSchema.max(64).optional(),
+);
+
+export const createRegistrationPaymentOrderSchema = z.object({
+  eventId: textSchema.min(1, "Event ID is required."),
+  registrationId: optionalPaymentReferenceSchema,
+  payerUserId: optionalPaymentReferenceSchema,
+  receipt: z.preprocess(
+    (value) =>
+      typeof value === "string" && value.trim().length === 0 ? undefined : value,
+    textSchema.max(40, "Receipt cannot exceed 40 characters.").optional(),
+  ),
+});
+
+export const verifyRazorpayPaymentSchema = z.object({
+  eventId: optionalPaymentReferenceSchema,
+  registrationId: optionalPaymentReferenceSchema,
+  payerUserId: optionalPaymentReferenceSchema,
+  razorpayOrderId: textSchema.min(1, "razorpayOrderId is required."),
+  razorpayPaymentId: textSchema.min(1, "razorpayPaymentId is required."),
+  razorpaySignature: textSchema.min(1, "razorpaySignature is required."),
+});
+
+export const razorpayWebhookCaptureSchema = z.object({
+  event: textSchema.min(1, "event is required."),
+  payload: z.object({
+    payment: z.object({
+      entity: z.object({
+        id: textSchema.min(1, "payment.entity.id is required."),
+        order_id: textSchema.min(1, "payment.entity.order_id is required."),
+        amount: z.number().int().min(0),
+        currency: textSchema
+          .length(3, "payment.entity.currency must be a 3-letter code.")
+          .transform((value) => value.toUpperCase()),
+        status: z
+          .preprocess(
+            (value) =>
+              typeof value === "string" && value.trim().length === 0
+                ? undefined
+                : value,
+            textSchema.optional(),
+          )
+          .optional(),
+        notes: z.record(z.string(), z.string()).optional(),
+      }),
+    }),
+  }),
+});
+
+export const escrowTransactionSchema = tenantScopedSchema.extend({
+  id: textSchema.min(1, "Transaction ID is required."),
+  eventId: textSchema.min(1).optional(),
+  registrationId: textSchema.min(1).optional(),
+  payerUserId: textSchema.min(1).optional(),
+  payeeType: escrowPayeeTypeSchema,
+  transactionType: escrowTransactionTypeSchema,
+  gateway: paymentGatewaySchema,
+  gatewayOrderId: textSchema.max(128).optional(),
+  gatewayPaymentId: textSchema.max(128).optional(),
+  gatewaySignature: textSchema.max(256).optional(),
+  amountMinor: z.number().int().min(0),
+  currency: textSchema.min(3).max(3).transform((value) => value.toUpperCase()),
+  status: escrowTransactionStatusSchema,
+  riskFlagsJson: textSchema.max(50_000).optional(),
+  metadataJson: textSchema.max(50_000).optional(),
+  createdAt: isoDatetimeSchema.nullable(),
+  updatedAt: isoDatetimeSchema.nullable(),
+});
+
+export const payoutSchema = tenantScopedSchema.extend({
+  id: textSchema.min(1, "Payout ID is required."),
+  eventId: textSchema.min(1).optional(),
+  requestedAmountMinor: z.number().int().min(0),
+  approvedAmountMinor: z.number().int().min(0).optional(),
+  currency: textSchema.min(3).max(3).transform((value) => value.toUpperCase()),
+  status: payoutStatusSchema,
+  requestedByUserId: textSchema.min(1),
+  reviewedByUserId: textSchema.min(1).optional(),
+  sourceTransactionRefsJson: textSchema.max(50_000).optional(),
+  payoutReference: textSchema.max(200).optional(),
+  failureReason: textSchema.max(500).optional(),
+  requestedAt: isoDatetimeSchema,
+  processedAt: isoDatetimeSchema.optional(),
+  createdAt: isoDatetimeSchema.nullable(),
+  updatedAt: isoDatetimeSchema.nullable(),
 });

@@ -1,5 +1,7 @@
 import "server-only";
 
+import { randomBytes } from "node:crypto";
+
 import {
   AppwriteException,
   type Databases,
@@ -62,6 +64,7 @@ type TeamDocument = Models.Document & {
   captainDiscordId: string;
   eventId: string;
   playerCount: number;
+  inviteCode?: string;
   status?: string;
   registrationId?: string;
   email?: string;
@@ -226,6 +229,10 @@ function normalizeToken(value: string | undefined): string | undefined {
   return trimmed ? trimmed : undefined;
 }
 
+function createTeamInviteCode(): string {
+  return randomBytes(6).toString("hex").toUpperCase();
+}
+
 function isRegistrationWindowOpen(event: EventRecord, currentTime: number): boolean {
   const opensAt = Date.parse(event.registrationOpensAt);
   const closesAt = Date.parse(event.registrationClosesAt);
@@ -382,6 +389,7 @@ export async function approveRegistration(registrationId: string): Promise<void>
         teamLogoUrl: registration.teamLogoUrl,
         teamTag: registration.teamTag,
         playerCount: registrationPlayers.length,
+        inviteCode: createTeamInviteCode(),
         status: "approved",
         registrationId,
       });
@@ -496,6 +504,7 @@ function mapUnderfilledTeamDocument(document: TeamDocument): UnderfilledTeamReco
     eventId: document.eventId,
     playerCount,
     slotsRemaining: Math.max(0, 5 - playerCount),
+    inviteCode: document.inviteCode,
   };
 }
 
@@ -813,6 +822,7 @@ export async function listApprovedTeamRostersByEvent(
         email: team.email,
         teamLogoUrl: team.teamLogoUrl,
         teamTag: team.teamTag,
+        inviteCode: team.inviteCode,
         createdAt: team.$createdAt ?? null,
         updatedAt: team.$updatedAt ?? null,
         players: rosterPlayers,
@@ -878,6 +888,7 @@ export async function createRandomTeamsFromSoloPlayers(
           captainDiscordId: chunk[0].discordId,
           eventId: normalizedEventId,
           playerCount: 0,
+          inviteCode: createTeamInviteCode(),
           status: "approved",
           registrationId: sharedRegistrationId,
         }),
@@ -1015,6 +1026,51 @@ export async function assignSoloPlayersToExistingTeam(
       teamId: normalizedTeamId,
       assignedCount: selectedSoloPlayers.length,
       resultingPlayerCount,
+    };
+  } catch (error) {
+    throw normalizeServiceError(error);
+  }
+}
+
+export async function regenerateTeamInviteCode(
+  eventId: string,
+  teamId: string,
+): Promise<{ eventId: string; teamId: string; inviteCode: string }> {
+  const normalizedEventId = eventId.trim();
+  const normalizedTeamId = teamId.trim();
+  if (!normalizedEventId) {
+    throw new HttpError("Event ID is required.", 400);
+  }
+  if (!normalizedTeamId) {
+    throw new HttpError("Team ID is required.", 400);
+  }
+
+  const databases = getAppwriteDatabases();
+  const { databaseId, teamsCollectionId } = getAppwriteCollections();
+
+  try {
+    const team = await databases.getDocument<TeamDocument>(
+      databaseId,
+      teamsCollectionId,
+      normalizedTeamId,
+    );
+
+    if (team.eventId !== normalizedEventId) {
+      throw new HttpError("Selected team does not belong to the requested event.", 409);
+    }
+
+    const inviteCode = createTeamInviteCode();
+    await databases.updateDocument<TeamDocument>(
+      databaseId,
+      teamsCollectionId,
+      normalizedTeamId,
+      { inviteCode },
+    );
+
+    return {
+      eventId: normalizedEventId,
+      teamId: normalizedTeamId,
+      inviteCode,
     };
   } catch (error) {
     throw normalizeServiceError(error);

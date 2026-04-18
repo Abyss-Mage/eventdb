@@ -18,6 +18,10 @@ type TeamsRosterResponse =
   | { success: true; data: { teams: ApprovedTeamRosterRecord[] } }
   | { success: false; error: string };
 
+type RegenerateInviteResponse =
+  | { success: true; data: { invite: { eventId: string; teamId: string; inviteCode: string } } }
+  | { success: false; error: string };
+
 type InlineMessage =
   | { tone: "error"; text: string }
   | { tone: "success"; text: string };
@@ -50,6 +54,7 @@ export function TeamsRosterClient() {
   const [teams, setTeams] = useState<ApprovedTeamRosterRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [regeneratingTeamId, setRegeneratingTeamId] = useState<string | null>(null);
   const [message, setMessage] = useState<InlineMessage | null>(null);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
@@ -197,6 +202,52 @@ export function TeamsRosterClient() {
     }
   }
 
+  async function handleRegenerateInvite(teamId: string) {
+    if (!selectedEventId) {
+      return;
+    }
+
+    setMessage(null);
+    setRegeneratingTeamId(teamId);
+
+    try {
+      const response = await fetch("/api/admin/teams/invite", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          eventId: selectedEventId,
+          teamId,
+        }),
+      });
+      const body = (await response.json()) as RegenerateInviteResponse;
+      if (!body.success) {
+        throwAdminGuardError(response.status, body.error);
+        throw new Error(body.error);
+      }
+
+      setTeams((current) =>
+        current.map((team) =>
+          team.id === teamId ? { ...team, inviteCode: body.data.invite.inviteCode } : team,
+        ),
+      );
+      setMessage({ tone: "success", text: `Invite code regenerated for ${teamId}.` });
+    } catch (error) {
+      if (applyAdminGuardRedirect(router, error)) {
+        return;
+      }
+
+      setMessage({
+        tone: "error",
+        text:
+          error instanceof Error && error.message
+            ? error.message
+            : "Unable to regenerate invite code.",
+      });
+    } finally {
+      setRegeneratingTeamId((current) => (current === teamId ? null : current));
+    }
+  }
+
   return (
     <section className="space-y-5">
       <div className="surface-base surface-elevated grid gap-4 p-5 xl:grid-cols-[1fr_auto]">
@@ -290,6 +341,14 @@ export function TeamsRosterClient() {
               >
                 {copiedKey === `team:${team.id}` ? "Copied Team ID" : "Copy Team ID"}
               </button>
+              <button
+                type="button"
+                onClick={() => void handleRegenerateInvite(team.id)}
+                className="btn-base btn-secondary px-3 py-1.5 text-xs"
+                disabled={regeneratingTeamId === team.id || isRefreshing}
+              >
+                {regeneratingTeamId === team.id ? "Regenerating..." : "Regenerate Invite"}
+              </button>
             </div>
 
             <div className="grid gap-3 rounded-lg border border-zinc-200 p-3 text-sm dark:border-zinc-800 sm:grid-cols-2 xl:grid-cols-3">
@@ -316,6 +375,20 @@ export function TeamsRosterClient() {
               <p>
                 <span className="font-medium text-soft">Team Logo URL:</span>{" "}
                 {team.teamLogoUrl ?? "—"}
+              </p>
+              <p>
+                <span className="font-medium text-soft">Invite Code:</span>{" "}
+                <span className="font-mono text-xs">{team.inviteCode ?? "—"}</span>
+              </p>
+              <p>
+                <button
+                  type="button"
+                  onClick={() => void handleCopy(team.inviteCode ?? "", `invite:${team.id}`)}
+                  className="btn-base btn-secondary px-2 py-1 text-[11px]"
+                  disabled={!team.inviteCode}
+                >
+                  {copiedKey === `invite:${team.id}` ? "Copied Invite" : "Copy Invite"}
+                </button>
               </p>
               <p>
                 <span className="font-medium text-soft">Created:</span>{" "}

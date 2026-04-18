@@ -26,17 +26,25 @@ Required server configuration:
 - `APPWRITE_API_KEY`
 - `APPWRITE_ADMIN_TEAM_ID` (Appwrite team ID allowed to access admin surfaces; supports comma-separated values. `APPWRITE_ADMIN_TEAM_IDS` is also supported.)
 - `APPWRITE_DATABASE_ID`
+- `APPWRITE_USERS_COLLECTION_ID` (optional, defaults to `users`)
+- `APPWRITE_ORGANIZERS_COLLECTION_ID` (optional, defaults to `organizers`)
 - `APPWRITE_REGISTRATIONS_COLLECTION_ID`
 - `APPWRITE_TEAMS_COLLECTION_ID`
 - `APPWRITE_PLAYERS_COLLECTION_ID`
 - `APPWRITE_FREE_AGENTS_COLLECTION_ID`
 - `APPWRITE_EVENTS_COLLECTION_ID` (optional, defaults to `events`)
+- `APPWRITE_BRACKETS_COLLECTION_ID` (optional, defaults to `brackets`)
 - `APPWRITE_MATCHES_COLLECTION_ID` (optional, defaults to `matches`)
 - `APPWRITE_TEAM_STATS_COLLECTION_ID` (optional, defaults to `team_stats`)
 - `APPWRITE_PLAYER_STATS_COLLECTION_ID` (optional, defaults to `player_stats`)
 - `APPWRITE_MVP_COLLECTION_ID` (optional, defaults to `mvp`)
+- `APPWRITE_TRANSACTIONS_COLLECTION_ID` (optional, defaults to `transactions`)
+- `APPWRITE_PAYOUTS_COLLECTION_ID` (optional, defaults to `payouts`)
 - `APPWRITE_MAPS_COLLECTION_ID` (optional, defaults to `maps`)
 - `APPWRITE_ADMIN_AUDIT_LOGS_COLLECTION_ID` (optional, defaults to `admin_audit_logs`)
+- `RAZORPAY_KEY_ID` (required for payment order and callback verification endpoints)
+- `RAZORPAY_KEY_SECRET` (required for payment order and callback verification endpoints)
+- `RAZORPAY_WEBHOOK_SECRET` (required for signed Razorpay webhook verification)
 - `RIOT_API_KEY` (required for Riot sync endpoints)
 - `RIOT_PLATFORM_REGION` (optional, defaults to `ap`)
 - `RIOT_ROUTING_REGION` (optional, defaults to `americas`)
@@ -65,17 +73,22 @@ If login returns **Invalid email or password**, credentials are incorrect for th
 
 Create tables in the configured database:
 
-1. `registrations`
-2. `teams`
-3. `players`
-4. `free_agents`
-5. `events`
-6. `matches`
-7. `team_stats`
-8. `player_stats`
-9. `mvp`
-10. `maps`
-11. `admin_audit_logs`
+1. `users`
+2. `organizers`
+3. `registrations`
+4. `teams`
+5. `players`
+6. `free_agents`
+7. `events`
+8. `brackets`
+9. `matches`
+10. `team_stats`
+11. `player_stats`
+12. `mvp`
+13. `transactions`
+14. `payouts`
+15. `maps`
+16. `admin_audit_logs`
 
 ### `registrations` (team submissions, pending approval)
 
@@ -126,6 +139,15 @@ Create tables in the configured database:
 - `mvp`: MVP candidate summaries and ranked scoring snapshots per event.
 - `maps`: canonical Valorant map catalog for required admin stat-entry selection.
 
+## Multi-Tenant Marketplace Resources (Foundation)
+
+- `users`: platform user profile envelope (`roles`, account status, KYC state).
+- `organizers`: tenant/workspace profile, verification status, commission and payout policy.
+- `brackets`: tournament bracket snapshots supporting single-elimination, double-elimination,
+  and league formats.
+- `transactions`: payment and escrow ledger records (Razorpay/internal states).
+- `payouts`: organizer payout requests and review/processing outcomes.
+
 ## Admin Audit Logs
 
 - `admin_audit_logs`: server-written audit trail for sensitive admin operations.
@@ -171,12 +193,17 @@ Registration behavior:
 - `GET /api/admin/registrations?status=pending|approved|rejected`
 - `POST /api/admin/approve`
 - `POST /api/admin/reject`
+- `GET /api/admin/organizers?verificationStatus=pending|under_review|approved|rejected&limit=<1-200>`
+- `POST /api/admin/organizers`
+- `PATCH /api/admin/organizers/verification`
 - `GET /api/admin/events?status=<event-status>&limit=<1-100>`
 - `POST /api/admin/events`
 - `PATCH /api/admin/events/update`
 - `POST /api/admin/events/publish`
 - `POST /api/admin/events/archive`
 - `POST /api/admin/events/delete`
+- `GET /api/admin/brackets?eventId=<event-id>&limit=<1-100>`
+- `POST /api/admin/brackets`
 - `GET /api/admin/matches?eventId=<event-id>&status=<match-status>&limit=<1-100>`
 - `POST /api/admin/matches`
 - `PATCH /api/admin/matches/update`
@@ -195,6 +222,7 @@ Registration behavior:
 - `GET /api/admin/teams/roster?eventId=<event-id>&limit=<1-200>`
 - `POST /api/admin/teams/randomize`
 - `POST /api/admin/teams/assign-solo`
+- `POST /api/admin/teams/invite`
 - `POST /api/admin/auth/login`
 - `POST /api/admin/auth/logout`
 - `GET /api/admin/auth/session`
@@ -204,6 +232,13 @@ Registration behavior:
 - `POST /api/admin/auth/mfa/challenge`
 - `POST /api/admin/auth/mfa/verify`
 - `GET /api/admin/auth/mfa/recovery-codes`
+- `GET /api/public/events/active`
+- `GET /api/public/events?game=<game>&region=<region>&format=<single_elimination|double_elimination|league>&minEntryFeeMinor=<int>&maxEntryFeeMinor=<int>&limit=<1-100>`
+- `GET /api/public/events/<event-id>`
+- `GET /api/public/leaderboard?eventId=<event-id>&limit=<1-100>`
+- `GET /api/public/wall-of-fame?eventId=<event-id>`
+- `POST /api/payments/order`
+- `POST /api/payments/verify`
 
 Event deletion safety:
 
@@ -219,6 +254,7 @@ Admin dashboard routes:
 - `/dashboard`
 - `/dashboard/registrations`
 - `/dashboard/events`
+- `/dashboard/brackets`
 - `/dashboard/matches`
 - `/dashboard/leaderboard`
 - `/dashboard/player-stats`
@@ -282,11 +318,32 @@ Team builder notes:
   - `POST /api/admin/teams/assign-solo`
   - Body: `{ "eventId": "<event-id>", "teamId": "<team-id>", "soloPlayerIds": ["<solo-player-id>"] }`
   - Target team must have fewer than 5 players and enough remaining slots.
+- Team invite code management:
+  - Teams created/approved through admin flows receive an invite code automatically.
+  - Regenerate a team invite code:
+    - `POST /api/admin/teams/invite`
+    - Body: `{ "eventId": "<event-id>", "teamId": "<team-id>" }`
+
+Bracket notes:
+
+- Bracket snapshots are persisted in the `brackets` collection.
+- Generate a bracket snapshot from an event's configured format:
+  - `POST /api/admin/brackets`
+  - Body: `{ "eventId": "<event-id>", "state": "draft" | "published" }`
+- List existing bracket snapshots for an event:
+  - `GET /api/admin/brackets?eventId=<event-id>&limit=<1-100>`
 
 Admin audit notes:
 
 - Logged actions include admin login/logout, MFA enroll/challenge/verify flows,
-  event create/update/publish/archive/delete, match create/update, leaderboard
+  organizer create/verification updates, event create/update/publish/archive/delete,
+  bracket generation, team invite regeneration, match create/update, leaderboard
   recompute, player stat create/update, Riot sync trigger/results, MVP recompute,
-  and registration approve/reject.
+  registration approve/reject, and payment order/verification lifecycle events.
 - Success/failure outcomes are recorded with concise operational context.
+
+Payments notes:
+
+- `POST /api/payments/order` creates a Razorpay order for paid events only. Free events return an explicit conflict error.
+- `POST /api/payments/verify` supports client callback verification and signed Razorpay webhook handling for `payment.captured`.
+- Payment capture writes/updates escrow ledger rows in `transactions` with idempotent replay handling.
