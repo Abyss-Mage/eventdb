@@ -13,7 +13,7 @@ export default function DashboardTeamBuilderPage() {
     <div className="space-y-6">
       <DashboardPageHeader
         title="Team Builder"
-        description="Select solo players to create random teams of 5, or assign selected solo players to underfilled teams."
+        description="Create teams from solo pools, assign into underfilled rosters, and manage team/free-agent player records."
       />
       <TeamBuilderClient />
     </div>

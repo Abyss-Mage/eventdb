@@ -226,6 +226,154 @@ export const adminAssignSoloPlayersSchema = z.object({
   soloPlayerIds: soloPlayerIdsSchema,
 });
 
+const teamMutableFieldsSchema = z.object({
+  teamName: textSchema
+    .min(3, "Team name must be at least 3 characters.")
+    .max(40, "Team name cannot exceed 40 characters.")
+    .optional(),
+  captainDiscordId: discordIdSchema.optional(),
+  teamTag: z
+    .preprocess(
+      (value) =>
+        typeof value === "string" && value.trim().length === 0 ? undefined : value,
+      textSchema
+        .max(5, "Team tag can contain at most 5 characters.")
+        .optional(),
+    )
+    .optional(),
+  teamLogoUrl: z
+    .preprocess(
+      (value) =>
+        typeof value === "string" && value.trim().length === 0 ? undefined : value,
+      z.string().trim().url("Team logo must be a valid URL.").optional(),
+    )
+    .optional(),
+});
+
+export const adminTeamUpdateSchema = teamMutableFieldsSchema
+  .extend({
+    eventId: textSchema.min(1, "Event ID is required."),
+    teamId: textSchema.min(1, "Team ID is required."),
+  })
+  .superRefine((payload, ctx) => {
+    const hasAtLeastOneUpdate = Object.entries(payload).some(
+      ([key, value]) => key !== "eventId" && key !== "teamId" && value !== undefined,
+    );
+
+    if (!hasAtLeastOneUpdate) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "At least one team field must be provided for update.",
+        path: [],
+      });
+    }
+  });
+
+const teamPlayerMutableSchema = z.object({
+  name: textSchema.min(2, "Player name must be at least 2 characters."),
+  riotId: riotIdSchema,
+  discordId: discordIdSchema,
+  role: roleSchema,
+});
+
+export const adminTeamPlayerAddSchema = z.object({
+  eventId: textSchema.min(1, "Event ID is required."),
+  teamId: textSchema.min(1, "Team ID is required."),
+  player: teamPlayerMutableSchema,
+  registrationId: z
+    .preprocess(
+      (value) =>
+        typeof value === "string" && value.trim().length === 0 ? undefined : value,
+      textSchema.max(64, "Registration reference cannot exceed 64 characters.").optional(),
+    )
+    .optional(),
+});
+
+export const adminTeamPlayerUpdateSchema = teamPlayerMutableSchema
+  .partial()
+  .extend({
+    eventId: textSchema.min(1, "Event ID is required."),
+    teamId: textSchema.min(1, "Team ID is required."),
+    playerId: textSchema.min(1, "Player ID is required."),
+  })
+  .superRefine((payload, ctx) => {
+    const hasAtLeastOneUpdate = Object.entries(payload).some(
+      ([key, value]) =>
+        key !== "eventId" &&
+        key !== "teamId" &&
+        key !== "playerId" &&
+        value !== undefined,
+    );
+
+    if (!hasAtLeastOneUpdate) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "At least one player field must be provided for update.",
+        path: [],
+      });
+    }
+  });
+
+export const adminTeamPlayerMoveSchema = z
+  .object({
+    eventId: textSchema.min(1, "Event ID is required."),
+    playerId: textSchema.min(1, "Player ID is required."),
+    destinationType: z.enum(["team", "free_agent"]),
+    destinationTeamId: textSchema.optional(),
+  })
+  .superRefine((payload, ctx) => {
+    if (payload.destinationType === "team") {
+      if (!payload.destinationTeamId || payload.destinationTeamId.trim().length === 0) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Destination team ID is required when destinationType is team.",
+          path: ["destinationTeamId"],
+        });
+      }
+    }
+  });
+
+export const adminTeamPlayerRemoveSchema = z.object({
+  eventId: textSchema.min(1, "Event ID is required."),
+  teamId: textSchema.min(1, "Team ID is required."),
+  playerId: textSchema.min(1, "Player ID is required."),
+});
+
+const freeAgentMutableFieldsSchema = z.object({
+  name: textSchema.min(2, "Player name must be at least 2 characters.").optional(),
+  riotId: riotIdSchema.optional(),
+  discordId: discordIdSchema.optional(),
+  preferredRole: roleSchema.optional(),
+  email: optionalEmailSchema.optional(),
+  currentRank: rankSchema.optional(),
+  peakRank: rankSchema.optional(),
+});
+
+export const adminFreeAgentUpdateSchema = freeAgentMutableFieldsSchema
+  .extend({
+    eventId: textSchema.min(1, "Event ID is required."),
+    freeAgentId: textSchema.min(1, "Solo player ID is required."),
+  })
+  .superRefine((payload, ctx) => {
+    const hasAtLeastOneUpdate = Object.entries(payload).some(
+      ([key, value]) =>
+        key !== "eventId" && key !== "freeAgentId" && value !== undefined,
+    );
+
+    if (!hasAtLeastOneUpdate) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "At least one solo player field must be provided for update.",
+        path: [],
+      });
+    }
+  });
+
+export const adminFreeAgentRemoveSchema = z.object({
+  eventId: textSchema.min(1, "Event ID is required."),
+  freeAgentId: textSchema.min(1, "Solo player ID is required."),
+});
+
 export const adminLoginSchema = z.object({
   email: textSchema.toLowerCase().email("Email must be valid."),
   password: z.string().min(1, "Password is required."),

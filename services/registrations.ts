@@ -1020,3 +1020,641 @@ export async function assignSoloPlayersToExistingTeam(
     throw normalizeServiceError(error);
   }
 }
+
+export type TeamUpdateInput = {
+  teamName?: string;
+  captainDiscordId?: string;
+  teamTag?: string;
+  teamLogoUrl?: string;
+};
+
+export type TeamPlayerAddInput = {
+  name: string;
+  riotId: string;
+  discordId: string;
+  role: TeamPlayerInput["role"];
+  registrationId?: string;
+};
+
+export type TeamPlayerUpdateInput = {
+  name?: string;
+  riotId?: string;
+  discordId?: string;
+  role?: TeamPlayerInput["role"];
+};
+
+export type TeamPlayerMoveDestination =
+  | { type: "team"; teamId: string }
+  | { type: "free_agent" };
+
+export type FreeAgentUpdateInput = {
+  name?: string;
+  riotId?: string;
+  discordId?: string;
+  preferredRole?: TeamPlayerInput["role"];
+  email?: string;
+  currentRank?: SoloRegistrationInput["currentRank"];
+  peakRank?: SoloRegistrationInput["peakRank"];
+};
+
+type TeamEditableRecord = {
+  id: string;
+  eventId: string;
+  teamName: string;
+  captainDiscordId: string;
+  playerCount: number;
+  teamTag?: string;
+  teamLogoUrl?: string;
+  registrationId?: string;
+};
+
+type TeamPlayerMutationSummary = {
+  eventId: string;
+  teamId: string;
+  playerId: string;
+  resultingPlayerCount: number;
+};
+
+type TeamPlayerMoveSummary = {
+  eventId: string;
+  playerId: string;
+  fromTeamId: string;
+  toTeamId?: string;
+  toFreeAgentId?: string;
+};
+
+function normalizeRequiredId(value: string, fieldName: string): string {
+  const normalized = value.trim();
+  if (!normalized) {
+    throw new HttpError(`${fieldName} is required.`, 400);
+  }
+
+  return normalized;
+}
+
+function normalizeOptionalId(value: string | undefined): string | undefined {
+  if (!value) {
+    return undefined;
+  }
+
+  const normalized = value.trim();
+  return normalized.length > 0 ? normalized : undefined;
+}
+
+function normalizeUpdatePayload<T extends Record<string, unknown>>(payload: T): Partial<T> {
+  return Object.fromEntries(
+    Object.entries(payload).filter(([, value]) => value !== undefined),
+  ) as Partial<T>;
+}
+
+function mapTeamEditableRecord(team: TeamDocument): TeamEditableRecord {
+  return {
+    id: team.$id,
+    eventId: team.eventId,
+    teamName: team.teamName,
+    captainDiscordId: team.captainDiscordId,
+    playerCount: Number.isFinite(team.playerCount) ? team.playerCount : 0,
+    teamTag: team.teamTag,
+    teamLogoUrl: team.teamLogoUrl,
+    registrationId: team.registrationId,
+  };
+}
+
+async function getTeamByIdForEvent(
+  databases: Databases,
+  ids: {
+    databaseId: string;
+    teamsCollectionId: string;
+  },
+  eventId: string,
+  teamId: string,
+): Promise<TeamDocument> {
+  const team = await databases.getDocument<TeamDocument>(
+    ids.databaseId,
+    ids.teamsCollectionId,
+    teamId,
+  );
+
+  if (team.eventId !== eventId) {
+    throw new HttpError("Selected team does not belong to the requested event.", 409);
+  }
+
+  return team;
+}
+
+async function getTeamPlayerByIdForEvent(
+  databases: Databases,
+  ids: {
+    databaseId: string;
+    playersCollectionId: string;
+  },
+  eventId: string,
+  playerId: string,
+): Promise<PlayerDocument> {
+  const player = await databases.getDocument<PlayerDocument>(
+    ids.databaseId,
+    ids.playersCollectionId,
+    playerId,
+  );
+
+  if (player.eventId !== eventId) {
+    throw new HttpError("Selected player does not belong to the requested event.", 409);
+  }
+
+  return player;
+}
+
+async function getFreeAgentByIdForEvent(
+  databases: Databases,
+  ids: {
+    databaseId: string;
+    freeAgentsCollectionId: string;
+  },
+  eventId: string,
+  freeAgentId: string,
+): Promise<FreeAgentDocument> {
+  const freeAgent = await databases.getDocument<FreeAgentDocument>(
+    ids.databaseId,
+    ids.freeAgentsCollectionId,
+    freeAgentId,
+  );
+
+  if (freeAgent.eventId !== eventId) {
+    throw new HttpError("Selected solo player does not belong to the requested event.", 409);
+  }
+
+  return freeAgent;
+}
+
+async function syncTeamPlayerCount(
+  databases: Databases,
+  ids: {
+    databaseId: string;
+    playersCollectionId: string;
+    teamsCollectionId: string;
+  },
+  eventId: string,
+  teamId: string,
+): Promise<number> {
+  const teamPlayers = await databases.listDocuments<PlayerDocument>(
+    ids.databaseId,
+    ids.playersCollectionId,
+    [
+      Query.equal("eventId", eventId),
+      Query.equal("teamId", teamId),
+      Query.limit(100),
+    ],
+  );
+
+  const playerCount = teamPlayers.documents.length;
+  await databases.updateDocument<TeamDocument>(ids.databaseId, ids.teamsCollectionId, teamId, {
+    playerCount,
+  });
+
+  return playerCount;
+}
+
+async function resolveFreeAgentForPlayerReturn(
+  databases: Databases,
+  ids: {
+    databaseId: string;
+    freeAgentsCollectionId: string;
+  },
+  player: PlayerDocument,
+): Promise<string> {
+  const candidates = await databases.listDocuments<FreeAgentDocument>(
+    ids.databaseId,
+    ids.freeAgentsCollectionId,
+    [
+      Query.equal("eventId", player.eventId),
+      Query.equal("status", "assigned"),
+      Query.equal("riotId", player.riotId),
+      Query.equal("discordId", player.discordId),
+      Query.limit(10),
+    ],
+  );
+
+  const existing = candidates.documents.find((candidate) => {
+    if (!candidate.assignedTeamId) {
+      return true;
+    }
+
+    return candidate.assignedTeamId === player.teamId;
+  });
+
+  if (existing) {
+    await databases.updateDocument<FreeAgentDocument>(
+      ids.databaseId,
+      ids.freeAgentsCollectionId,
+      existing.$id,
+      {
+        name: player.name,
+        riotId: player.riotId,
+        discordId: player.discordId,
+        preferredRole: player.role,
+        status: "available",
+      },
+    );
+    return existing.$id;
+  }
+
+  const created = await databases.createDocument<FreeAgentDocument>(
+    ids.databaseId,
+    ids.freeAgentsCollectionId,
+    ID.unique(),
+    {
+      name: player.name,
+      riotId: player.riotId,
+      discordId: player.discordId,
+      preferredRole: player.role,
+      eventId: player.eventId,
+      status: "available",
+      registrationId: player.registrationId,
+    },
+  );
+
+  return created.$id;
+}
+
+export async function updateTeam(
+  eventId: string,
+  teamId: string,
+  updates: TeamUpdateInput,
+): Promise<TeamEditableRecord> {
+  const normalizedEventId = normalizeRequiredId(eventId, "Event ID");
+  const normalizedTeamId = normalizeRequiredId(teamId, "Team ID");
+  const updatePayload = normalizeUpdatePayload(updates);
+
+  if (Object.keys(updatePayload).length === 0) {
+    throw new HttpError("At least one team field must be provided for update.", 400);
+  }
+
+  const databases = getAppwriteDatabases();
+  const { databaseId, teamsCollectionId } = getAppwriteCollections();
+
+  try {
+    await getTeamByIdForEvent(
+      databases,
+      { databaseId, teamsCollectionId },
+      normalizedEventId,
+      normalizedTeamId,
+    );
+
+    const updatedTeam = await databases.updateDocument<TeamDocument>(
+      databaseId,
+      teamsCollectionId,
+      normalizedTeamId,
+      updatePayload,
+    );
+
+    return mapTeamEditableRecord(updatedTeam);
+  } catch (error) {
+    throw normalizeServiceError(error);
+  }
+}
+
+export async function addPlayerToTeam(
+  eventId: string,
+  teamId: string,
+  playerInput: TeamPlayerAddInput,
+): Promise<TeamPlayerMutationSummary> {
+  const normalizedEventId = normalizeRequiredId(eventId, "Event ID");
+  const normalizedTeamId = normalizeRequiredId(teamId, "Team ID");
+  const normalizedRegistrationId =
+    normalizeOptionalId(playerInput.registrationId) ??
+    `manual_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+
+  const databases = getAppwriteDatabases();
+  const { databaseId, teamsCollectionId, playersCollectionId } = getAppwriteCollections();
+
+  try {
+    const team = await getTeamByIdForEvent(
+      databases,
+      { databaseId, teamsCollectionId },
+      normalizedEventId,
+      normalizedTeamId,
+    );
+
+    const currentPlayerCount = Number.isFinite(team.playerCount) ? team.playerCount : 0;
+    if (currentPlayerCount >= 5) {
+      throw new HttpError("Selected team already has 5 or more players.", 409);
+    }
+
+    const createdPlayer = await databases.createDocument<PlayerDocument>(
+      databaseId,
+      playersCollectionId,
+      ID.unique(),
+      {
+        name: playerInput.name,
+        riotId: playerInput.riotId,
+        discordId: playerInput.discordId,
+        role: playerInput.role,
+        eventId: normalizedEventId,
+        teamId: normalizedTeamId,
+        registrationId: normalizedRegistrationId,
+      },
+    );
+
+    try {
+      const resultingPlayerCount = await syncTeamPlayerCount(
+        databases,
+        { databaseId, playersCollectionId, teamsCollectionId },
+        normalizedEventId,
+        normalizedTeamId,
+      );
+
+      return {
+        eventId: normalizedEventId,
+        teamId: normalizedTeamId,
+        playerId: createdPlayer.$id,
+        resultingPlayerCount,
+      };
+    } catch (error) {
+      try {
+        await databases.deleteDocument(databaseId, playersCollectionId, createdPlayer.$id);
+      } catch (cleanupError) {
+        const cleanupMessage =
+          cleanupError instanceof Error && cleanupError.message.trim().length > 0
+            ? cleanupError.message
+            : "unknown cleanup error";
+        throw new HttpError(
+          `Failed to update team player count and cleanup failed: ${cleanupMessage}`,
+          500,
+        );
+      }
+
+      throw error;
+    }
+  } catch (error) {
+    throw normalizeServiceError(error);
+  }
+}
+
+export async function updateTeamPlayer(
+  eventId: string,
+  teamId: string,
+  playerId: string,
+  updates: TeamPlayerUpdateInput,
+): Promise<TeamRosterPlayerRecord> {
+  const normalizedEventId = normalizeRequiredId(eventId, "Event ID");
+  const normalizedTeamId = normalizeRequiredId(teamId, "Team ID");
+  const normalizedPlayerId = normalizeRequiredId(playerId, "Player ID");
+  const updatePayload = normalizeUpdatePayload(updates);
+
+  if (Object.keys(updatePayload).length === 0) {
+    throw new HttpError("At least one player field must be provided for update.", 400);
+  }
+
+  const databases = getAppwriteDatabases();
+  const { databaseId, playersCollectionId } = getAppwriteCollections();
+
+  try {
+    const player = await getTeamPlayerByIdForEvent(
+      databases,
+      { databaseId, playersCollectionId },
+      normalizedEventId,
+      normalizedPlayerId,
+    );
+
+    if (player.teamId !== normalizedTeamId) {
+      throw new HttpError("Selected player does not belong to the requested team.", 409);
+    }
+
+    const updatedPlayer = await databases.updateDocument<PlayerDocument>(
+      databaseId,
+      playersCollectionId,
+      normalizedPlayerId,
+      updatePayload,
+    );
+
+    return mapTeamRosterPlayer(updatedPlayer);
+  } catch (error) {
+    throw normalizeServiceError(error);
+  }
+}
+
+export async function moveTeamPlayer(
+  eventId: string,
+  playerId: string,
+  destination: TeamPlayerMoveDestination,
+): Promise<TeamPlayerMoveSummary> {
+  const normalizedEventId = normalizeRequiredId(eventId, "Event ID");
+  const normalizedPlayerId = normalizeRequiredId(playerId, "Player ID");
+
+  const databases = getAppwriteDatabases();
+  const {
+    databaseId,
+    playersCollectionId,
+    teamsCollectionId,
+    freeAgentsCollectionId,
+  } = getAppwriteCollections();
+
+  try {
+    const player = await getTeamPlayerByIdForEvent(
+      databases,
+      { databaseId, playersCollectionId },
+      normalizedEventId,
+      normalizedPlayerId,
+    );
+    const fromTeamId = player.teamId;
+    await getTeamByIdForEvent(
+      databases,
+      { databaseId, teamsCollectionId },
+      normalizedEventId,
+      fromTeamId,
+    );
+
+    if (destination.type === "team") {
+      const normalizedDestinationTeamId = normalizeRequiredId(
+        destination.teamId,
+        "Destination team ID",
+      );
+
+      if (normalizedDestinationTeamId === fromTeamId) {
+        throw new HttpError("Player is already in the selected team.", 409);
+      }
+
+      const destinationTeam = await getTeamByIdForEvent(
+        databases,
+        { databaseId, teamsCollectionId },
+        normalizedEventId,
+        normalizedDestinationTeamId,
+      );
+      const destinationCount = Number.isFinite(destinationTeam.playerCount)
+        ? destinationTeam.playerCount
+        : 0;
+      if (destinationCount >= 5) {
+        throw new HttpError("Destination team already has 5 or more players.", 409);
+      }
+
+      await databases.updateDocument<PlayerDocument>(
+        databaseId,
+        playersCollectionId,
+        normalizedPlayerId,
+        { teamId: normalizedDestinationTeamId },
+      );
+
+      await syncTeamPlayerCount(
+        databases,
+        { databaseId, playersCollectionId, teamsCollectionId },
+        normalizedEventId,
+        fromTeamId,
+      );
+      await syncTeamPlayerCount(
+        databases,
+        { databaseId, playersCollectionId, teamsCollectionId },
+        normalizedEventId,
+        normalizedDestinationTeamId,
+      );
+
+      return {
+        eventId: normalizedEventId,
+        playerId: normalizedPlayerId,
+        fromTeamId,
+        toTeamId: normalizedDestinationTeamId,
+      };
+    }
+
+    const freeAgentId = await resolveFreeAgentForPlayerReturn(
+      databases,
+      { databaseId, freeAgentsCollectionId },
+      player,
+    );
+    await databases.deleteDocument(databaseId, playersCollectionId, normalizedPlayerId);
+    await syncTeamPlayerCount(
+      databases,
+      { databaseId, playersCollectionId, teamsCollectionId },
+      normalizedEventId,
+      fromTeamId,
+    );
+
+    return {
+      eventId: normalizedEventId,
+      playerId: normalizedPlayerId,
+      fromTeamId,
+      toFreeAgentId: freeAgentId,
+    };
+  } catch (error) {
+    throw normalizeServiceError(error);
+  }
+}
+
+export async function removeTeamPlayer(
+  eventId: string,
+  teamId: string,
+  playerId: string,
+): Promise<TeamPlayerMutationSummary> {
+  const normalizedEventId = normalizeRequiredId(eventId, "Event ID");
+  const normalizedTeamId = normalizeRequiredId(teamId, "Team ID");
+  const normalizedPlayerId = normalizeRequiredId(playerId, "Player ID");
+
+  const databases = getAppwriteDatabases();
+  const { databaseId, playersCollectionId, teamsCollectionId } = getAppwriteCollections();
+
+  try {
+    const player = await getTeamPlayerByIdForEvent(
+      databases,
+      { databaseId, playersCollectionId },
+      normalizedEventId,
+      normalizedPlayerId,
+    );
+    if (player.teamId !== normalizedTeamId) {
+      throw new HttpError("Selected player does not belong to the requested team.", 409);
+    }
+
+    await databases.deleteDocument(databaseId, playersCollectionId, normalizedPlayerId);
+    const resultingPlayerCount = await syncTeamPlayerCount(
+      databases,
+      { databaseId, playersCollectionId, teamsCollectionId },
+      normalizedEventId,
+      normalizedTeamId,
+    );
+
+    return {
+      eventId: normalizedEventId,
+      teamId: normalizedTeamId,
+      playerId: normalizedPlayerId,
+      resultingPlayerCount,
+    };
+  } catch (error) {
+    throw normalizeServiceError(error);
+  }
+}
+
+export async function updateFreeAgent(
+  eventId: string,
+  freeAgentId: string,
+  updates: FreeAgentUpdateInput,
+): Promise<SoloPlayerPoolRecord> {
+  const normalizedEventId = normalizeRequiredId(eventId, "Event ID");
+  const normalizedFreeAgentId = normalizeRequiredId(freeAgentId, "Solo player ID");
+  const updatePayload = normalizeUpdatePayload(updates);
+
+  if (Object.keys(updatePayload).length === 0) {
+    throw new HttpError("At least one solo player field must be provided for update.", 400);
+  }
+
+  const databases = getAppwriteDatabases();
+  const { databaseId, freeAgentsCollectionId } = getAppwriteCollections();
+
+  try {
+    const freeAgent = await getFreeAgentByIdForEvent(
+      databases,
+      { databaseId, freeAgentsCollectionId },
+      normalizedEventId,
+      normalizedFreeAgentId,
+    );
+
+    if (freeAgent.status !== "available") {
+      throw new HttpError("Only available solo players can be edited.", 409);
+    }
+
+    const updatedFreeAgent = await databases.updateDocument<FreeAgentDocument>(
+      databaseId,
+      freeAgentsCollectionId,
+      normalizedFreeAgentId,
+      updatePayload,
+    );
+
+    return mapFreeAgentDocument(updatedFreeAgent);
+  } catch (error) {
+    throw normalizeServiceError(error);
+  }
+}
+
+export async function removeFreeAgent(
+  eventId: string,
+  freeAgentId: string,
+): Promise<{ eventId: string; freeAgentId: string }> {
+  const normalizedEventId = normalizeRequiredId(eventId, "Event ID");
+  const normalizedFreeAgentId = normalizeRequiredId(freeAgentId, "Solo player ID");
+
+  const databases = getAppwriteDatabases();
+  const { databaseId, freeAgentsCollectionId } = getAppwriteCollections();
+
+  try {
+    const freeAgent = await getFreeAgentByIdForEvent(
+      databases,
+      { databaseId, freeAgentsCollectionId },
+      normalizedEventId,
+      normalizedFreeAgentId,
+    );
+
+    if (freeAgent.status !== "available") {
+      throw new HttpError("Only available solo players can be removed.", 409);
+    }
+
+    await databases.deleteDocument(
+      databaseId,
+      freeAgentsCollectionId,
+      normalizedFreeAgentId,
+    );
+
+    return {
+      eventId: normalizedEventId,
+      freeAgentId: normalizedFreeAgentId,
+    };
+  } catch (error) {
+    throw normalizeServiceError(error);
+  }
+}

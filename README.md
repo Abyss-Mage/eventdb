@@ -191,8 +191,15 @@ Registration behavior:
 - `GET /api/admin/riot/config`
 - `POST /api/admin/riot/sync`
 - `GET /api/admin/solo-pool?eventId=<event-id>&limit=<1-200>`
+- `PATCH /api/admin/solo-pool/update`
+- `POST /api/admin/solo-pool/remove`
 - `GET /api/admin/teams/underfilled?eventId=<event-id>&limit=<1-200>`
 - `GET /api/admin/teams/roster?eventId=<event-id>&limit=<1-200>`
+- `PATCH /api/admin/teams/update`
+- `POST /api/admin/teams/player/add`
+- `PATCH /api/admin/teams/player/update`
+- `POST /api/admin/teams/player/move`
+- `POST /api/admin/teams/player/remove`
 - `POST /api/admin/teams/randomize`
 - `POST /api/admin/teams/assign-solo`
 - `POST /api/admin/auth/login`
@@ -282,6 +289,15 @@ Team builder notes:
   - `POST /api/admin/teams/assign-solo`
   - Body: `{ "eventId": "<event-id>", "teamId": "<team-id>", "soloPlayerIds": ["<solo-player-id>"] }`
   - Target team must have fewer than 5 players and enough remaining slots.
+- Full roster management for existing teams/free-agent pool:
+  - Team details edit: `PATCH /api/admin/teams/update`
+  - Add roster player: `POST /api/admin/teams/player/add`
+  - Edit roster player: `PATCH /api/admin/teams/player/update`
+  - Move roster player (to another team or free-agent pool): `POST /api/admin/teams/player/move`
+  - Remove roster player from team: `POST /api/admin/teams/player/remove`
+  - Edit free-agent profile: `PATCH /api/admin/solo-pool/update`
+  - Remove free-agent record: `POST /api/admin/solo-pool/remove`
+  - Roster constraints remain enforced: event-scoped actions only and max 5 players per team.
 
 Admin audit notes:
 
